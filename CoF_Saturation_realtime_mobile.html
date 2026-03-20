@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CoF Saturation Realtime</title>
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #fff;
+      --accent: #00ffcc;
+      --muted: #9aa0a6;
+      --card: #111;
+      --border: #333;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100%;
+    }
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 20px 16px 28px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 1.2rem;
+      font-weight: 700;
+      text-align: center;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .row {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    button {
+      appearance: none; border: 1px solid #444; background: #1a1a1a; color: var(--fg);
+      border-radius: 12px; padding: 12px 14px; font-size: 1rem; cursor: pointer;
+    }
+    button.primary { background: #0f3; color: #000; border-color: #0f3; font-weight: 700; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    label {
+      display: block; font-size: 0.9rem; color: var(--muted); margin: 8px 0 6px;
+    }
+    input[type="number"], input[type="range"] {
+      width: 100%;
+    }
+    input[type="number"] {
+      background: #0b0b0b; color: #fff; border: 1px solid #444; border-radius: 10px;
+      padding: 10px 12px; font-size: 1rem;
+    }
+    .main-value {
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(3rem, 16vw, 6rem);
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+      margin: 10px 0;
+    }
+    .subtitle {
+      text-align: center; color: var(--muted); font-size: 0.95rem; min-height: 1.2em;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    canvas {
+      width: 100%;
+      height: 120px;
+      display: block;
+      background: #050505;
+      border-radius: 12px;
+      border: 1px solid #222;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .metric {
+      background: #0b0b0b;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .metric .k { color: var(--muted); font-size: 0.8rem; }
+    .metric .v { font-size: 1.2rem; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .footer {
+      text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>五度圏彩度 |w̃<sub>5th</sub>| リアルタイム表示</h1>
+
+    <div class="card">
+      <div class="row">
+        <button id="startBtn" class="primary">マイク開始</button>
+        <button id="stopBtn" disabled>停止</button>
+      </div>
+      <div class="subtitle" id="status">待機中</div>
+      <div class="main-value" id="mainValue">0.0000</div>
+      <canvas id="history" width="720" height="120"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label for="fRef">基準周波数 f_ref [Hz]</label>
+          <input id="fRef" type="number" value="261.625565" step="0.001" />
+        </div>
+        <div>
+          <label for="fftSize">FFTサイズ</label>
+          <input id="fftSize" type="number" value="4096" step="1024" min="1024" />
+        </div>
+        <div>
+          <label for="fMin">最低周波数 [Hz]</label>
+          <input id="fMin" type="number" value="60" step="1" />
+        </div>
+        <div>
+          <label for="fMax">最高周波数 [Hz]</label>
+          <input id="fMax" type="number" value="4000" step="1" />
+        </div>
+      </div>
+
+      <label for="ema">表示平滑 (EMA)</label>
+      <input id="ema" type="range" min="0" max="0.95" step="0.01" value="0.25" />
+
+      <label for="gate">無音ゲート RMS</label>
+      <input id="gate" type="range" min="0" max="0.01" step="0.00005" value="0.0008" />
+
+      <div class="grid" style="margin-top:12px;">
+        <div class="metric"><div class="k">RMS</div><div class="v" id="rmsVal">0.0000</div></div>
+        <div class="metric"><div class="k">arg(w̃₅th) [rad]</div><div class="v" id="argVal">0.0000</div></div>
+        <div class="metric"><div class="k">Re</div><div class="v" id="reVal">0.0000</div></div>
+        <div class="metric"><div class="k">Im</div><div class="v" id="imVal">0.0000</div></div>
+      </div>
+    </div>
+
+    <div class="card small">
+      スマホのブラウザで開いて「マイク開始」を押してください。iPhone は Safari、Android は Chrome 推奨です。<br>
+      持続音で値が下がる場合は、OS のマイク処理や環境ノイズの影響のことがあります。
+    </div>
+
+    <div class="footer">MCA realtime CoF saturation demo</div>
+  </div>
+
+  <script>
+    let audioCtx = null;
+    let stream = null;
+    let source = null;
+    let processor = null;
+
+    let fftSize = 4096;
+    let sampleRate = 48000;
+    let hann = null;
+    let kernelRe = null;
+    let kernelIm = null;
+    let freqValid = null;
+
+    let satDisplay = 0.0;
+    let latest = { sat: 0, rms: 0, re: 0, im: 0, arg: 0 };
+    let history = new Array(240).fill(0);
+
+    const els = {
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      status: document.getElementById('status'),
+      mainValue: document.getElementById('mainValue'),
+      rmsVal: document.getElementById('rmsVal'),
+      argVal: document.getElementById('argVal'),
+      reVal: document.getElementById('reVal'),
+      imVal: document.getElementById('imVal'),
+      fRef: document.getElementById('fRef'),
+      fftSize: document.getElementById('fftSize'),
+      fMin: document.getElementById('fMin'),
+      fMax: document.getElementById('fMax'),
+      ema: document.getElementById('ema'),
+      gate: document.getElementById('gate'),
+      history: document.getElementById('history'),
+    };
+
+    function setStatus(text) {
+      els.status.textContent = text;
+    }
+
+    function buildTables() {
+      fftSize = Math.max(1024, parseInt(els.fftSize.value || '4096', 10));
+      const fRef = Math.max(1e-6, parseFloat(els.fRef.value || '261.625565'));
+      const fMin = Math.max(1, parseFloat(els.fMin.value || '60'));
+      const fMax = Math.max(fMin + 1, parseFloat(els.fMax.value || '4000'));
+
+      hann = new Float64Array(fftSize);
+      for (let n = 0; n < fftSize; n++) {
+        hann[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (fftSize - 1));
+      }
+
+      const bins = fftSize / 2 + 1;
+      kernelRe = new Float64Array(bins);
+      kernelIm = new Float64Array(bins);
+      freqValid = new Uint8Array(bins);
+
+      for (let k = 0; k < bins; k++) {
+        const f = k * sampleRate / fftSize;
+        if (f > 0 && f >= fMin && f <= fMax) {
+          const ph = 14 * Math.PI * (Math.log2(f / fRef));
+          kernelRe[k] = Math.cos(ph);
+          kernelIm[k] = Math.sin(ph);
+          freqValid[k] = 1;
+        }
+      }
+    }
+
+    // Radix-2 FFT
+    function fftRadix2(re, im) {
+      const n = re.length;
+      const levels = Math.log2(n) | 0;
+      if ((1 << levels) !== n) throw new Error('FFT size must be power of 2');
+
+      for (let i = 0; i < n; i++) {
+        let j = 0;
+        for (let k = 0; k < levels; k++) j = (j << 1) | ((i >>> k) & 1);
+        if (j > i) {
+          [re[i], re[j]] = [re[j], re[i]];
+          [im[i], im[j]] = [im[j], im[i]];
+        }
+      }
+
+      for (let size = 2; size <= n; size <<= 1) {
+        const half = size >>> 1;
+        const step = -2 * Math.PI / size;
+        for (let i = 0; i < n; i += size) {
+          for (let j = 0; j < half; j++) {
+            const angle = step * j;
+            const wr = Math.cos(angle), wi = Math.sin(angle);
+            const l = i + j;
+            const r = l + half;
+            const tr = re[r] * wr - im[r] * wi;
+            const ti = re[r] * wi + im[r] * wr;
+            re[r] = re[l] - tr;
+            im[r] = im[l] - ti;
+            re[l] += tr;
+            im[l] += ti;
+          }
+        }
+      }
+    }
+
+    function processBlock(input) {
+      const gate = parseFloat(els.gate.value);
+      const ema = parseFloat(els.ema.value);
+
+      let rms = 0;
+      for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+      rms = Math.sqrt(rms / input.length + 1e-20);
+
+      let sat = 0, zr = 0, zi = 0;
+
+      if (rms >= gate) {
+        const re = new Float64Array(fftSize);
+        const im = new Float64Array(fftSize);
+        for (let i = 0; i < fftSize; i++) re[i] = (input[i] || 0) * hann[i];
+
+        fftRadix2(re, im);
+
+        let denom = 0, sumRe = 0, sumIm = 0;
+        const bins = fftSize / 2 + 1;
+        for (let k = 1; k < bins; k++) {
+          if (!freqValid[k]) continue;
+          const p = re[k] * re[k] + im[k] * im[k];
+          denom += p;
+          sumRe += p * kernelRe[k];
+          sumIm += p * kernelIm[k];
+        }
+        if (denom > 1e-20) {
+          zr = sumRe / denom;
+          zi = sumIm / denom;
+          sat = Math.hypot(zr, zi);
+        }
+      }
+
+      satDisplay = (1 - ema) * satDisplay + ema * sat;
+      const arg = ((Math.atan2(zi, zr) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      latest = { sat: satDisplay, rms, re: zr, im: zi, arg };
+
+      history.push(satDisplay);
+      if (history.length > 240) history.shift();
+    }
+
+    function drawHistory() {
+      const c = els.history;
+      const ctx = c.getContext('2d');
+      const w = c.width, h = c.height;
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 4; i++) {
+        const y = (h / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#00ffcc';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((v, i) => {
+        const x = i * (w / (history.length - 1));
+        const y = h - Math.max(0, Math.min(1, v)) * h;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function uiLoop() {
+      els.mainValue.textContent = latest.sat.toFixed(4);
+      els.rmsVal.textContent = latest.rms.toFixed(4);
+      els.argVal.textContent = latest.arg.toFixed(4);
+      els.reVal.textContent = latest.re.toFixed(4);
+      els.imVal.textContent = latest.im.toFixed(4);
+      drawHistory();
+      requestAnimationFrame(uiLoop);
+    }
+
+    async function startAudio() {
+      try {
+        els.startBtn.disabled = true;
+        setStatus('マイク許可待ち…');
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          },
+          video: false
+        });
+
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        sampleRate = audioCtx.sampleRate;
+        buildTables();
+
+        const chunkSize = fftSize;
+        source = audioCtx.createMediaStreamSource(stream);
+        processor = audioCtx.createScriptProcessor(chunkSize, 1, 1);
+
+        processor.onaudioprocess = (ev) => {
+          const input = ev.inputBuffer.getChannelData(0);
+          if (input.length !== fftSize) {
+            const buf = new Float32Array(fftSize);
+            buf.set(input.subarray(0, Math.min(input.length, fftSize)));
+            processBlock(buf);
+          } else {
+            processBlock(input);
+          }
+        };
+
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        els.stopBtn.disabled = false;
+        setStatus(`動作中 / sampleRate=${sampleRate} Hz / FFT=${fftSize}`);
+      } catch (err) {
+        console.error(err);
+        setStatus('マイク開始に失敗');
+        els.startBtn.disabled = false;
+        alert('マイクが使えませんでした。ブラウザのマイク許可を確認してください。');
+      }
+    }
+
+    async function stopAudio() {
+      try {
+        if (processor) {
+          processor.disconnect();
+          processor.onaudioprocess = null;
+          processor = null;
+        }
+        if (source) {
+          source.disconnect();
+          source = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+          stream = null;
+        }
+        if (audioCtx) {
+          await audioCtx.close();
+          audioCtx = null;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      els.stopBtn.disabled = true;
+      els.startBtn.disabled = false;
+      setStatus('停止中');
+    }
+
+    els.startBtn.addEventListener('click', startAudio);
+    els.stopBtn.addEventListener('click', stopAudio);
+
+    requestAnimationFrame(uiLoop);
+  </script>
+</body>
+</html>
