@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Two-tone Front / Back / 3D State Viewer</title>
+  <style>
+    body { background:#111; color:#eee; font-family: system-ui, sans-serif; margin:0; }
+    .wrap { max-width: 1700px; margin: 0 auto; padding: 20px; }
+    h1 { margin-top:0; }
+    .panel { background:#1b1b1b; border:1px solid #333; border-radius:12px; padding:16px; margin-bottom:16px; }
+    .grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:12px; }
+    .twoCol, .canvasGrid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .threeRow { display:grid; grid-template-columns: 1fr; gap:16px; }
+    label { display:block; font-size:13px; margin-bottom:4px; color:#ccc; }
+    input, select, button { width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #444; background:#0f0f0f; color:#eee; }
+    button { cursor:pointer; background:#222; }
+    button:hover { background:#2d2d2d; }
+    .sliderRow { display:flex; gap:12px; align-items:center; margin-top:14px; }
+    .sliderRow input[type=range] { flex:1; padding:0; }
+    .sliderLabel { min-width: 180px; color:#ddd; }
+    .sliderValue { min-width: 260px; text-align:right; color:#ddd; }
+    .sliderCompact { margin-top: 12px; }
+    .help { font-size:12px; color:#9ab; margin-top:8px; }
+    .muted { color:#8aa; }
+    .hidden { display:none !important; }
+    canvas { width:100%; background:#000; border-radius:10px; }
+    .small { font-size:12px; color:#aaa; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+    #status { color:#9fd; min-height:1.4em; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Two-tone Front / Back / 3D State Viewer</h1>
+  <div class="panel" id="state3DViewPanel">
+    <div class="grid">
+      <div><label>A [Hz]</label><input id="A_hz" type="number" value="440" step="0.1" /></div>
+      <div><label>l 値 (B=(1-l)A+l·2A)</label><input id="l_value" type="number" value="0.5" step="0.01" /></div>
+      <div><label>スライダーモード</label><select id="slider_mode"><option value="continuous">連続 l</option><option value="harmony">調和単位 l_k</option></select></div>
+      <div><label>表示切替</label><select id="view_mode"><option value="front">表空間</option><option value="back">裏空間</option><option value="state3d">3Dグラフ</option></select></div>
+      <div><label>|k| の上限 K</label><input id="k_limit" type="number" value="3" step="1" min="0" /></div>
+      <div><label>現在の k</label><input id="k_value" type="number" value="0" step="1" /></div>
+      <div><label>A4 Hz</label><input id="a4_hz" type="number" value="440" step="0.1" /></div>
+      <div><label>分布解像度 n_θ</label><input id="n_theta" type="number" value="720" step="1" /></div>
+      <div><label>red_note</label><select id="red_note"><option>C</option><option>C#</option><option>D</option><option>D#</option><option>E</option><option>F</option><option>F#</option><option>G</option><option>G#</option><option>A</option><option>A#</option><option>B</option></select></div>
+      <div><label>red_octave</label><input id="red_octave" type="number" value="4" step="1" /></div>
+      <div><label>&nbsp;</label><button id="applyBtn">更新</button></div>
+      <div><label>&nbsp;</label><button id="audioToggleBtn">表の2音を鳴らす: OFF</button></div>
+      <div><label>&nbsp;</label><button id="stopAudioBtn">音を停止</button></div>
+      <div><label>3D 視点: azimuth [deg]</label><input id="azimuthDeg" type="number" value="-35" step="1" /></div>
+      <div><label>3D 視点: elevation [deg]</label><input id="elevationDeg" type="number" value="22" step="1" /></div>
+      <div><label>軌跡サンプル数</label><input id="trajSamples" type="number" value="401" step="1" min="21" /></div>
+      <div><label>&nbsp;</label><button id="rebuildTrajBtn">軌跡を再計算</button></div>    </div>
+    <div class="sliderRow" id="continuousTopRow">
+      <div class="sliderLabel">l スライダー</div>
+      <input id="mSliderTop" type="range" min="0" max="1000" value="500" step="1" />
+      <div class="sliderValue"><span id="mLabelTop">l = 0.5000</span></div>
+    </div>
+    <div class="sliderRow" id="harmonyTopRow">
+      <div class="sliderLabel">調和単位 k スライダー</div>
+      <input id="kSliderTop" type="range" min="-3" max="3" value="0" step="1" />
+      <div class="sliderValue"><span id="kLabelTop">k = 0 / l_k = 0.5000</span></div>
+    </div>
+    <div class="help muted">調和単位モードでは l = l_k = 2^k / (1 + 2^k) を使用します。K を変えると k スライダーの範囲が更新されます。</div>
+    <div id="status" class="small" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="threeRow">
+    <div class="panel" id="frontViewPanel"><div class="small">表空間（A, B の色相分布と重心）</div><canvas id="frontDistCanvas" width="900" height="300"></canvas><canvas id="frontPlaneCanvas" width="700" height="700" style="margin-top:12px;"></canvas><div class="panel mono small" id="frontInfo" style="margin-top:16px;"></div></div>
+    <div class="panel" id="backViewPanel"><div class="small">裏空間（差音・補完音2成分の色相分布と重心）</div><canvas id="backDistCanvas" width="900" height="300"></canvas><canvas id="backPlaneCanvas" width="700" height="700" style="margin-top:12px;"></canvas><div class="panel mono small" id="backInfo" style="margin-top:16px;"></div></div>
+  </div>
+
+  <div class="threeRow">
+    <div class="panel">
+      <div class="small">3D 合成空間: 表平面を XY 平面、裏平面を XZ 平面に直交配置し、Front ベクトル F=(Re(w_front), Im(w_front), 0)、Back ベクトル B=(Re(w_back), 0, Im(w_back)) を合成。現在点 R=F+B と、l 範囲全体の軌跡を表示。</div>
+      <canvas id="state3DCanvas" width="1400" height="760"></canvas>
+      <div class="sliderRow sliderCompact" id="continuous3DRow">
+        <div class="sliderLabel">l スライダー</div>
+        <input id="mSlider3D" type="range" min="0" max="1000" value="500" step="1" />
+        <div class="sliderValue"><span id="mLabel3D">l = 0.5000</span></div>
+      </div>
+      <div class="sliderRow sliderCompact" id="harmony3DRow">
+        <div class="sliderLabel">調和単位 k スライダー</div>
+        <input id="kSlider3D" type="range" min="-3" max="3" value="0" step="1" />
+        <div class="sliderValue"><span id="kLabel3D">k = 0 / l_k = 0.5000</span></div>
+      </div>
+      <div class="help">3D 操作: キャンバス上でドラッグすると視点回転、ホイールで拡大縮小、ダブルクリックで視点を初期化します。</div>
+      <div class="panel mono small" id="state3DInfo" style="margin-top:16px;"></div>
+    </div>
+  </div>
+</div>
+<script>
+const twoPi = 2*Math.PI;
+const NOTE_NAMES_12 = ["C","D♭","D","E♭","E","F","G♭","G","A♭","A","B♭","B"];
+const NOTE_TO_SEMITONE = {C:0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,F:5,'F#':6,Gb:6,G:7,'G#':8,Ab:8,A:9,'A#':10,Bb:10,B:11};
+let analysis = null;
+let trajectory = [];
+let audioCtx = null, gainNode = null, oscA = null, oscB = null, audioOn = false;
+let viewScale = 1.0;
+let dragState = {active:false, x:0, y:0};
+const fd = document.getElementById('frontDistCanvas').getContext('2d');
+const bd = document.getElementById('backDistCanvas').getContext('2d');
+const fp = document.getElementById('frontPlaneCanvas').getContext('2d');
+const bp = document.getElementById('backPlaneCanvas').getContext('2d');
+const s3 = document.getElementById('state3DCanvas').getContext('2d');
+const statusEl = document.getElementById('status');
+const lSliderTop = document.getElementById('mSliderTop');
+const lValueInput = document.getElementById('l_value');
+const lSlider3D = document.getElementById('mSlider3D');
+const lLabelTop = document.getElementById('mLabelTop');
+const lLabel3D = document.getElementById('mLabel3D');
+const sliderModeEl = document.getElementById('slider_mode');
+const viewModeEl = document.getElementById('view_mode');
+const kLimitEl = document.getElementById('k_limit');
+const kValueInput = document.getElementById('k_value');
+const kSliderTop = document.getElementById('kSliderTop');
+const kSlider3D = document.getElementById('kSlider3D');
+const kLabelTop = document.getElementById('kLabelTop');
+const kLabel3D = document.getElementById('kLabel3D');
+const continuousTopRow = document.getElementById('continuousTopRow');
+const harmonyTopRow = document.getElementById('harmonyTopRow');
+const continuous3DRow = document.getElementById('continuous3DRow');
+const harmony3DRow = document.getElementById('harmony3DRow');
+const frontViewPanel = document.getElementById('frontViewPanel');
+const backViewPanel = document.getElementById('backViewPanel');
+const state3DViewPanel = document.getElementById('state3DViewPanel');
+const stateCanvas = document.getElementById('state3DCanvas');
+const frontInfo = document.getElementById('frontInfo');
+const backInfo = document.getElementById('backInfo');
+const state3DInfo = document.getElementById('state3DInfo');
+const audioToggleBtn = document.getElementById('audioToggleBtn');
+function setStatus(msg){ statusEl.textContent = msg; }
+function wrap2pi(a){ return ((a % twoPi)+twoPi)%twoPi; }
+function toX(v, vmin, vmax, left, right){ return left + (v-vmin) * (right-left)/(vmax-vmin); }
+function toY(v, vmin, vmax, top, bottom){ return bottom - (v-vmin)*(bottom-top)/(vmax-vmin); }
+function hsvToRgbObj(h, s, v){ let r,g,b; const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s); switch(i%6){case 0:r=v;g=t;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=t;break;case 3:r=p;g=q;b=v;break;case 4:r=t;g=p;b=v;break;case 5:r=v;g=p;b=q;break;} return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)}; }
+function hsvToCss(h,s,v){ const c=hsvToRgbObj(h,s,v); return `rgb(${c.r},${c.g},${c.b})`; }
+function normalize(arr){ const s = arr.reduce((a,b)=>a+Math.max(0,b),0); return arr.map(v => Math.max(0,v)/(s + 1e-12)); }
+function centroid(thetaVals, H){ let re=0, im=0; for(let i=0;i<thetaVals.length;i++){ re += H[i]*Math.cos(thetaVals[i]); im += H[i]*Math.sin(thetaVals[i]); } return {re, im, abs:Math.hypot(re,im), arg:wrap2pi(Math.atan2(im,re))}; }
+function nearestIndex(thetaVals, theta){ let best=0, bestAbs=1e99; for(let i=0;i<thetaVals.length;i++){ const d=Math.abs(Math.atan2(Math.sin(thetaVals[i]-theta), Math.cos(thetaVals[i]-theta))); if(d<bestAbs){bestAbs=d; best=i;} } return best; }
+function addSpike(H, thetaVals, theta, weight){ if(theta===null || theta===undefined || !isFinite(theta) || weight<=0) return; H[nearestIndex(thetaVals, theta)] += weight; }
+function midiToHz(midi, a4){ return a4 * Math.pow(2, (midi - 69) / 12); }
+function noteToHz(name, octave, a4){ return midiToHz(12*(octave+1) + NOTE_TO_SEMITONE[name], a4); }
+function thetaFromFreq(freq, fRef){ if(!(freq>0)) return null; return twoPi * ((Math.log2(freq / fRef) % 1 + 1) % 1); }
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function getMode(){ return sliderModeEl.value; }
+function currentKLimit(){ const K = Math.max(0, Math.floor(Number(kLimitEl.value) || 0)); kLimitEl.value = String(K); return K; }
+function harmonyLFromK(k){ return Math.pow(2, k) / (1 + Math.pow(2, k)); }
+function updateModeBounds(){ return {minVal:0, maxVal:1}; }
+function sliderToL(){ const {minVal,maxVal}=updateModeBounds(); return minVal + (maxVal-minVal) * (Number(lSliderTop.value)/1000); }
+function lToSliderValue(l){ const {minVal,maxVal}=updateModeBounds(); return Math.round(1000 * (l-minVal)/(maxVal-minVal)); }
+function syncLSliders(source){ const v = Number(source.value); lSliderTop.value = String(v); lSlider3D.value = String(v); const l = sliderToL(); if(lValueInput) lValueInput.value = l.toFixed(4); }
+function updateKControls(){ const K = currentKLimit(); [kSliderTop, kSlider3D].forEach(sl=>{ sl.min = String(-K); sl.max = String(K); }); let k = clamp(Math.round(Number(kValueInput.value) || 0), -K, K); kValueInput.value = String(k); kSliderTop.value = String(k); kSlider3D.value = String(k); }
+function syncKSliders(source){ const K = currentKLimit(); let k = clamp(Math.round(Number(source.value) || 0), -K, K); kSliderTop.value = String(k); kSlider3D.value = String(k); kValueInput.value = String(k); const l = harmonyLFromK(k); const sv = lToSliderValue(l); lSliderTop.value = String(sv); lSlider3D.value = String(sv); if(lValueInput) lValueInput.value = l.toFixed(4); }
+function currentL(){ return getMode()==='harmony' ? harmonyLFromK(Math.round(Number(kValueInput.value)||0)) : sliderToL(); }
+function refreshViewModeUI(){
+  const mode = viewModeEl.value;
+  frontViewPanel.classList.toggle('hidden', mode !== 'front');
+  backViewPanel.classList.toggle('hidden', mode !== 'back');
+  state3DViewPanel.classList.toggle('hidden', mode !== 'state3d');
+}
+function refreshSliderModeUI(){
+  const harmonyMode = getMode()==='harmony';
+  continuousTopRow.classList.toggle('hidden', harmonyMode);
+  continuous3DRow.classList.toggle('hidden', harmonyMode);
+  harmonyTopRow.classList.toggle('hidden', !harmonyMode);
+  harmony3DRow.classList.toggle('hidden', !harmonyMode);
+  [kSliderTop, kSlider3D, kValueInput, kLimitEl].forEach(el=>{ el.disabled = !harmonyMode; });
+  [lSliderTop, lSlider3D].forEach(el=>{ el.disabled = harmonyMode; });
+}
+function setLLabel(){ const l = currentL(); const k = Math.round(Number(kValueInput.value)||0); lLabelTop.textContent = `l = ${l.toFixed(4)}`; lLabel3D.textContent = `l = ${l.toFixed(4)}`; kLabelTop.textContent = `k = ${k} / l_k = ${harmonyLFromK(k).toFixed(4)}`; kLabel3D.textContent = `k = ${k} / l_k = ${harmonyLFromK(k).toFixed(4)}`; if(lValueInput) lValueInput.value = l.toFixed(4); refreshSliderModeUI(); }
+function noteThetaPositions(fRef, a4, octave){ return NOTE_NAMES_12.map(name => thetaFromFreq(noteToHz(name.replace('♭','b'), octave, a4), fRef)); }
+function safeComplement(x, y){ const d=Math.abs(x-y); const t=Math.min(x,y)-d; return t>0 ? t : null; }
+function computeAnalysisForL(l){
+  const A = Number(document.getElementById('A_hz').value);
+  const a4 = Number(document.getElementById('a4_hz').value);
+  const redNote = document.getElementById('red_note').value;
+  const redOct = Number(document.getElementById('red_octave').value);
+  const nTheta = Number(document.getElementById('n_theta').value);
+  const fRef = noteToHz(redNote, redOct, a4);
+  const thetaVals = Array.from({length:nTheta}, (_,i)=> twoPi*i/nTheta);
+  const B = (1-l)*A + l*2*A;
+  const thetaA = thetaFromFreq(A, fRef), thetaB = thetaFromFreq(B, fRef);
+  let HFront = Array(nTheta).fill(0); [thetaA,thetaB].forEach(t=>addSpike(HFront, thetaVals, t, 1/2)); HFront = normalize(HFront);
+  const sFreq = Math.abs(A-B);
+  const tFreq = safeComplement(A,B);
+  const components = [
+    {pair:'AB', kind:'difference', label:'s_A,B', freq_hz:sFreq>0?sFreq:null, theta:thetaFromFreq(sFreq,fRef)},
+    {pair:'AB', kind:'complement', label:'t_A,B', freq_hz:tFreq, theta:thetaFromFreq(tFreq,fRef)}
+  ];
+  const valid = components.filter(c => c.theta !== null);
+  let HBack = Array(nTheta).fill(0); valid.forEach(c => addSpike(HBack, thetaVals, c.theta, 1/Math.max(1, valid.length))); HBack = normalize(HBack);
+  const frontW = centroid(thetaVals, HFront);
+  const backW = centroid(thetaVals, HBack);
+  const F = {x: frontW.re, y: frontW.im, z: 0};
+  const Bv = {x: backW.re, y: 0, z: backW.im};
+  const R = {x: F.x + Bv.x, y: F.y + Bv.y, z: F.z + Bv.z};
+  return {
+    params:{A_hz:A,B_hz:B,l_value:l,a4_hz:a4,red_note:redNote,red_octave:redOct,f_ref:fRef},
+    theta_vals:thetaVals,
+    note_thetas:noteThetaPositions(fRef, a4, redOct),
+    note_names:NOTE_NAMES_12,
+    front:{H:HFront,theta_A:thetaA,theta_B:thetaB,w:frontW},
+    back:{H:HBack,w:backW,components:components,valid_count:valid.length},
+    state3d:{F,B:Bv,R}
+  };
+}
+function buildAnalysis(){ analysis = computeAnalysisForL(currentL()); }
+function drawDistribution(ctx, canvas, title, arr, thetaVals, noteThetas, noteNames, markerThetas){ ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height); const left=70,right=canvas.width-25,top=30,bottom=canvas.height-45; const ymax=Math.max(...arr)*1.1 || 1; ctx.strokeStyle='#444'; ctx.lineWidth=1; for(let i=0;i<noteThetas.length;i++){ const x=toX(noteThetas[i],0,twoPi,left,right); ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,bottom); ctx.stroke(); ctx.fillStyle='#ccc'; ctx.font='13px sans-serif'; ctx.fillText(noteNames[i],x-10,bottom+18);} for(let i=0;i<thetaVals.length;i++){ const x=toX(thetaVals[i],0,twoPi,left,right), y=toY(arr[i],0,ymax,top,bottom); ctx.strokeStyle=hsvToCss(thetaVals[i]/twoPi,1,1); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x,bottom); ctx.lineTo(x,y); ctx.stroke(); } markerThetas.forEach((theta,idx)=>{ if(theta===null||theta===undefined) return; const x=toX(theta,0,twoPi,left,right); ctx.strokeStyle=idx===0?'#ffd166':idx===1?'#4cc9f0':'#ff7df0'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,bottom); ctx.stroke();}); ctx.fillStyle='#fff'; ctx.font='16px sans-serif'; ctx.fillText(title,left,20); }
+function drawComplexPlane(ctx, canvas, title, centroidVal, noteThetas, noteNames, componentThetas){ ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height); const cx=canvas.width/2, cy=canvas.height/2+10, R=Math.min(canvas.width,canvas.height)*0.34; ctx.strokeStyle='#444'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(cx,cy,R,0,twoPi); ctx.stroke(); for(let i=0;i<360;i++){ const a=i/360*twoPi, x=cx+R*Math.cos(a), y=cy-R*Math.sin(a); ctx.fillStyle=hsvToCss(i/360,1,1); ctx.fillRect(x,y,2,2);} ctx.strokeStyle='#fff'; ctx.fillStyle='#fff'; ctx.font='15px sans-serif'; for(let i=0;i<noteThetas.length;i++){ const a=noteThetas[i], x0=cx+R*Math.cos(a), y0=cy-R*Math.sin(a), x1=cx+(R+8)*Math.cos(a), y1=cy-(R+8)*Math.sin(a), xt=cx+(R+24)*Math.cos(a), yt=cy-(R+24)*Math.sin(a); ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.fillText(noteNames[i],xt-9,yt+4);} componentThetas.forEach((comp,idx)=>{ const theta = (typeof comp === 'number') ? comp : comp?.theta; const label = (typeof comp === 'number') ? '' : (comp?.label || ''); if(theta===null||theta===undefined||!isFinite(theta)) return; const x=cx+R*Math.cos(theta), y=cy-R*Math.sin(theta); ctx.fillStyle=idx%2===0?'#ffb347':'#7de1ff'; ctx.beginPath(); ctx.arc(x,y,5,0,twoPi); ctx.fill(); if(label){ const dx = x >= cx ? 8 : -52; const dy = y >= cy ? 16 : -10; ctx.font='14px sans-serif'; ctx.fillStyle='#fff'; ctx.fillText(label, x+dx, y+dy); }}); ctx.fillStyle='#fff'; ctx.fillText('+',cx-4,cy+5); ctx.strokeStyle='#ff4d6d'; ctx.fillStyle='#ff4d6d'; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+centroidVal.re*R, cy-centroidVal.im*R); ctx.stroke(); ctx.beginPath(); ctx.arc(cx+centroidVal.re*R, cy-centroidVal.im*R, 6, 0, twoPi); ctx.fill(); ctx.fillStyle='#fff'; ctx.fillText('w', cx+centroidVal.re*R+10, cy-centroidVal.im*R-8); ctx.fillText(title, 24, 32); }
+function rotatePoint(p, azDeg, elDeg){
+  const az = azDeg * Math.PI / 180;
+  const el = elDeg * Math.PI / 180;
+  const x1 = p.x*Math.cos(az) + p.z*Math.sin(az);
+  const y1 = p.y;
+  const z1 = -p.x*Math.sin(az) + p.z*Math.cos(az);
+  const x2 = x1;
+  const y2 = y1*Math.cos(el) - z1*Math.sin(el);
+  const z2 = y1*Math.sin(el) + z1*Math.cos(el);
+  return {x:x2, y:y2, z:z2};
+}
+function project3D(p, azDeg, elDeg, cx, cy, scale){
+  const r = rotatePoint(p, azDeg, elDeg);
+  const depth = 3.2;
+  const persp = depth / (depth - r.z);
+  return {x: cx + scale * r.x * persp, y: cy - scale * r.y * persp, z:r.z};
+}
+function drawArrow2D(ctx, p0, p1, color, width=3){
+  ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=width;
+  ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+  const ang = Math.atan2(p1.y-p0.y, p1.x-p0.x), ah=10;
+  ctx.beginPath();
+  ctx.moveTo(p1.x,p1.y);
+  ctx.lineTo(p1.x-ah*Math.cos(ang-Math.PI/6), p1.y-ah*Math.sin(ang-Math.PI/6));
+  ctx.lineTo(p1.x-ah*Math.cos(ang+Math.PI/6), p1.y-ah*Math.sin(ang+Math.PI/6));
+  ctx.closePath(); ctx.fill();
+}
+function draw3DState(ctx, canvas){
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const az = Number(document.getElementById('azimuthDeg').value);
+  const el = Number(document.getElementById('elevationDeg').value);
+  const cx = canvas.width/2, cy = canvas.height/2 + 20, scale = Math.min(canvas.width, canvas.height) * 0.23 * viewScale;
+  const origin = {x:0,y:0,z:0};
+  const axes = [
+    {p:{x:1.4,y:0,z:0}, color:'#aaa', label:'+X (Re front + Re back basis)'},
+    {p:{x:0,y:1.2,z:0}, color:'#4cc9f0', label:'+Y (Im front)'},
+    {p:{x:0,y:0,z:1.2}, color:'#ffb347', label:'+Z (Im back)'}
+  ];
+  const o2 = project3D(origin, az, el, cx, cy, scale);
+  axes.forEach(ax=>{
+    const p2 = project3D(ax.p, az, el, cx, cy, scale);
+    drawArrow2D(ctx, o2, p2, ax.color, 2.5);
+    ctx.fillStyle=ax.color; ctx.font='14px sans-serif'; ctx.fillText(ax.label, p2.x+6, p2.y-6);
+  });
+
+  const planeFront = [ {x:-1,y:-1,z:0}, {x:1,y:-1,z:0}, {x:1,y:1,z:0}, {x:-1,y:1,z:0} ];
+  const planeBack  = [ {x:-1,y:0,z:-1}, {x:1,y:0,z:-1}, {x:1,y:0,z:1}, {x:-1,y:0,z:1} ];
+  function drawPlane(poly, fill){
+    const pts = poly.map(p=>project3D(p, az, el, cx, cy, scale));
+    ctx.fillStyle=fill; ctx.strokeStyle='#555'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  drawPlane(planeFront, 'rgba(76, 201, 240, 0.08)');
+  drawPlane(planeBack,  'rgba(255, 179, 71, 0.08)');
+
+  if(trajectory.length>1){
+    ctx.lineWidth=2;
+    for(let i=1;i<trajectory.length;i++){
+      const p0 = project3D(trajectory[i-1].R, az, el, cx, cy, scale);
+      const p1 = project3D(trajectory[i].R, az, el, cx, cy, scale);
+      const hue = i/(trajectory.length-1);
+      ctx.strokeStyle = hsvToCss(hue, 0.85, 1.0);
+      ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+    }
+  }
+
+  const F2 = project3D(analysis.state3d.F, az, el, cx, cy, scale);
+  const B2 = project3D(analysis.state3d.B, az, el, cx, cy, scale);
+  const R2 = project3D(analysis.state3d.R, az, el, cx, cy, scale);
+  drawArrow2D(ctx, o2, F2, '#4cc9f0', 4);
+  drawArrow2D(ctx, o2, B2, '#ffb347', 4);
+  drawArrow2D(ctx, o2, R2, '#ff4d6d', 5);
+  ctx.fillStyle='#4cc9f0'; ctx.beginPath(); ctx.arc(F2.x,F2.y,6,0,twoPi); ctx.fill();
+  ctx.fillStyle='#ffb347'; ctx.beginPath(); ctx.arc(B2.x,B2.y,6,0,twoPi); ctx.fill();
+  ctx.fillStyle='#ff4d6d'; ctx.beginPath(); ctx.arc(R2.x,R2.y,7,0,twoPi); ctx.fill();
+  ctx.fillStyle='#4cc9f0'; ctx.font='16px sans-serif'; ctx.fillText('F', F2.x+9, F2.y-8);
+  ctx.fillStyle='#ffb347'; ctx.fillText('B', B2.x+9, B2.y-8);
+  ctx.fillStyle='#ff4d6d'; ctx.fillText('R = F + B', R2.x+10, R2.y-10);
+
+  if(trajectory.length>0){
+    const first = project3D(trajectory[0].R, az, el, cx, cy, scale);
+    const last = project3D(trajectory[trajectory.length-1].R, az, el, cx, cy, scale);
+    ctx.fillStyle='#ddd'; ctx.font='14px sans-serif';
+    ctx.fillText(`l_min`, first.x+8, first.y+16);
+    ctx.fillText(`l_max`, last.x+8, last.y+16);
+  }
+
+  ctx.fillStyle='#fff';
+  ctx.font='18px sans-serif';
+  ctx.fillText('3D integrated state space (two-tone)', 26, 30);
+}
+function rebuildTrajectory(){
+  const {minVal,maxVal} = updateModeBounds();
+  let n = Math.max(21, Math.floor(Number(document.getElementById('trajSamples').value) || 401));
+  trajectory = [];
+  for(let i=0;i<n;i++){
+    const l = minVal + (maxVal-minVal) * (i/(n-1));
+    const a = computeAnalysisForL(l);
+    trajectory.push({l, F:a.state3d.F, B:a.state3d.B, R:a.state3d.R});
+  }
+}
+function renderInfo(){
+  const p=analysis.params, f=analysis.front, b=analysis.back, s=analysis.state3d;
+  frontInfo.textContent=[`A = ${p.A_hz.toFixed(6)} Hz`,`B = ${p.B_hz.toFixed(6)} Hz   (l = ${p.l_value.toFixed(6)})   [mode=${getMode()==='harmony'?'harmony':'continuous'}]`,`θ_A = ${f.theta_A.toFixed(6)}`,`θ_B = ${f.theta_B.toFixed(6)}`,`w_front = ${f.w.re.toFixed(6)} + ${f.w.im.toFixed(6)} i`,`|w_front| = ${f.w.abs.toFixed(6)}   arg = ${f.w.arg.toFixed(6)}`].join('\n');
+  backInfo.textContent=[`valid back components = ${b.valid_count} / 2`,...b.components.map(c => `${c.label} (${c.pair} ${c.kind}): ${c.freq_hz===null?'none':c.freq_hz.toFixed(6)+' Hz'}   θ=${c.theta===null?'none':c.theta.toFixed(6)}`),`w_back = ${b.w.re.toFixed(6)} + ${b.w.im.toFixed(6)} i`,`|w_back| = ${b.w.abs.toFixed(6)}   arg = ${b.w.arg.toFixed(6)}`].join('\n');
+  state3DInfo.textContent = [
+    `3D embedding rule`,
+    `F = (Re(w_front), Im(w_front), 0) = (${s.F.x.toFixed(6)}, ${s.F.y.toFixed(6)}, ${s.F.z.toFixed(6)})`,
+    `B = (Re(w_back), 0, Im(w_back)) = (${s.B.x.toFixed(6)}, ${s.B.y.toFixed(6)}, ${s.B.z.toFixed(6)})`,
+    `R = F + B = (${s.R.x.toFixed(6)}, ${s.R.y.toFixed(6)}, ${s.R.z.toFixed(6)})`,
+    `|R| = ${Math.hypot(s.R.x, s.R.y, s.R.z).toFixed(6)}`,
+    `trajectory samples = ${trajectory.length}`,
+    `view azimuth = ${Number(document.getElementById('azimuthDeg').value).toFixed(2)} deg   elevation = ${Number(document.getElementById('elevationDeg').value).toFixed(2)} deg   zoom = ${viewScale.toFixed(3)}`
+  ].join('\n');
+}
+function renderAll(rebuild=true){
+  buildAnalysis();
+  if(rebuild) rebuildTrajectory();
+  drawDistribution(fd, document.getElementById('frontDistCanvas'), 'Front space H(θ)', analysis.front.H, analysis.theta_vals, analysis.note_thetas, analysis.note_names, [analysis.front.theta_A, analysis.front.theta_B]);
+  drawDistribution(bd, document.getElementById('backDistCanvas'), 'Back space H(θ)', analysis.back.H, analysis.theta_vals, analysis.note_thetas, analysis.note_names, analysis.back.components.map(c=>c.theta));
+  drawComplexPlane(fp, document.getElementById('frontPlaneCanvas'), 'Front complex hue plane', analysis.front.w, analysis.note_thetas, analysis.note_names, [analysis.front.theta_A, analysis.front.theta_B]);
+  drawComplexPlane(bp, document.getElementById('backPlaneCanvas'), 'Back complex hue plane', analysis.back.w, analysis.note_thetas, analysis.note_names, analysis.back.components.map(c=>({theta:c.theta, label:c.label})));
+  draw3DState(s3, document.getElementById('state3DCanvas'));
+  renderInfo();
+  if(audioOn) updateAudioFrequencies();
+  setStatus(rebuild ? '更新完了（軌跡再計算あり）' : '更新完了');
+}
+async function ensureAudio(){ if(audioCtx) return; audioCtx=new (window.AudioContext||window.webkitAudioContext)(); gainNode=audioCtx.createGain(); gainNode.gain.value=0.04; gainNode.connect(audioCtx.destination); oscA=audioCtx.createOscillator(); oscB=audioCtx.createOscillator(); [oscA,oscB].forEach(o=>{o.type='sine'; o.connect(gainNode); o.start();}); }
+function updateAudioFrequencies(){ if(!audioCtx || !analysis) return; oscA.frequency.setValueAtTime(analysis.params.A_hz, audioCtx.currentTime); oscB.frequency.setValueAtTime(analysis.params.B_hz, audioCtx.currentTime); }
+async function toggleAudio(){ if(!audioOn){ await ensureAudio(); if(audioCtx.state==='suspended') await audioCtx.resume(); updateAudioFrequencies(); gainNode.gain.setValueAtTime(0.04, audioCtx.currentTime); audioOn=true; audioToggleBtn.textContent='表の2音を鳴らす: ON'; } else { if(gainNode && audioCtx) gainNode.gain.setValueAtTime(0.0, audioCtx.currentTime); audioOn=false; audioToggleBtn.textContent='表の2音を鳴らす: OFF'; } }
+function stopAudio(){ if(gainNode && audioCtx) gainNode.gain.setValueAtTime(0.0, audioCtx.currentTime); audioOn=false; audioToggleBtn.textContent='表の2音を鳴らす: OFF'; }
+document.getElementById('applyBtn').addEventListener('click', ()=>renderAll(true));
+document.getElementById('rebuildTrajBtn').addEventListener('click', ()=>renderAll(true));
+lValueInput.addEventListener('input', ()=>{
+  let l = Number(lValueInput.value);
+  if(!Number.isFinite(l)) return;
+  l = Math.max(0, Math.min(1, l));
+  const sv = lToSliderValue(l);
+  lSliderTop.value = String(sv);
+  lSlider3D.value = String(sv);
+  setLLabel();
+  renderAll(false);
+});
+
+document.getElementById('audioToggleBtn').addEventListener('click', toggleAudio);
+document.getElementById('stopAudioBtn').addEventListener('click', stopAudio);
+document.getElementById('azimuthDeg').addEventListener('input', ()=>renderAll(false));
+document.getElementById('elevationDeg').addEventListener('input', ()=>renderAll(false));
+sliderModeEl.addEventListener('change', ()=>{ setLLabel(); renderAll(false); });
+viewModeEl.addEventListener('change', ()=>{ refreshViewModeUI(); renderAll(false); });
+kLimitEl.addEventListener('input', ()=>{ updateKControls(); syncKSliders(kSliderTop); setLLabel(); renderAll(false); });
+kValueInput.addEventListener('input', ()=>{ syncKSliders(kValueInput); setLLabel(); renderAll(false); });
+[kSliderTop, kSlider3D].forEach(sl=>sl.addEventListener('input', (e)=>{ syncKSliders(e.target); setLLabel(); renderAll(false);}));
+[lSliderTop, lSlider3D].forEach(sl=>sl.addEventListener('input', (e)=>{ syncLSliders(e.target); setLLabel(); renderAll(false);}));
+stateCanvas.addEventListener('mousedown', (e)=>{ dragState.active = true; dragState.x = e.clientX; dragState.y = e.clientY; });
+window.addEventListener('mouseup', ()=>{ dragState.active = false; });
+window.addEventListener('mousemove', (e)=>{
+  if(!dragState.active) return;
+  const dx = e.clientX - dragState.x;
+  const dy = e.clientY - dragState.y;
+  dragState.x = e.clientX; dragState.y = e.clientY;
+  const azEl = document.getElementById('azimuthDeg');
+  const elEl = document.getElementById('elevationDeg');
+  azEl.value = String(Number(azEl.value) + dx * 0.5);
+  let nextEl = Number(elEl.value) + dy * 0.35;
+  nextEl = Math.max(-89, Math.min(89, nextEl));
+  elEl.value = String(nextEl);
+  renderAll(false);
+});
+stateCanvas.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.001);
+  viewScale = Math.max(0.35, Math.min(3.0, viewScale * factor));
+  renderAll(false);
+}, {passive:false});
+stateCanvas.addEventListener('dblclick', ()=>{
+  document.getElementById('azimuthDeg').value = '-35';
+  document.getElementById('elevationDeg').value = '22';
+  viewScale = 1.0;
+  renderAll(false);
+});
+updateKControls();
+syncKSliders(kSliderTop);
+syncLSliders(lSliderTop);
+refreshViewModeUI();
+setLLabel(); renderAll(true);
+</script>
+</body>
+</html>
