@@ -1,0 +1,1879 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCA Ideal Chord Moments Viewer + Harmonic Distribution + Audio</title>
+  <style>
+    :root{
+      --bg:#111; --panel:#1b1b1b; --line:#333; --fg:#eee; --muted:#9ab; --accent:#9fd;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    .wrap{ max-width:1800px; margin:0 auto; padding:20px; }
+    h1{ margin:0 0 12px; }
+    .panel{
+      background:var(--panel); border:1px solid var(--line);
+      border-radius:14px; padding:16px; margin-bottom:16px;
+    }
+    .grid{
+      display:grid; gap:12px;
+      grid-template-columns:repeat(6,minmax(0,1fr));
+    }
+    .grid4{
+      display:grid; gap:16px;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .sliderBox{
+      background:#141414; border:1px solid #2e2e2e; border-radius:12px; padding:12px; margin-top:14px;
+    }
+    .voiceRow{
+      display:grid; gap:12px; align-items:center;
+      grid-template-columns:110px 1fr 110px 150px 130px 90px 110px;
+      margin-bottom:10px;
+    }
+    .subgrid{
+      display:grid; gap:12px;
+      grid-template-columns:repeat(5,minmax(0,1fr));
+      margin-top:8px;
+    }
+    label{ display:block; font-size:13px; color:#ccc; margin-bottom:5px; }
+    input, select, button{
+      width:100%; padding:10px; border-radius:8px;
+      border:1px solid #444; background:#0f0f0f; color:var(--fg);
+    }
+    input[type=range]{ padding:0; }
+    button{ cursor:pointer; background:#222; }
+    button:hover{ background:#2b2b2b; }
+    canvas{
+      width:100%; display:block; background:#000; border-radius:10px;
+    }
+    .small{ font-size:12px; color:#aaa; }
+    .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; }
+    .status{ min-height:1.4em; color:var(--accent); font-size:13px; margin-top:10px; }
+    .help{ font-size:12px; color:var(--muted); margin-top:10px; }
+    .muted{ color:#9ab; }
+    .hidden{ display:none !important; }
+    @media (max-width:1300px){
+      .grid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+      .subgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+      .voiceRow{ grid-template-columns:110px 1fr 110px 150px; }
+      .voiceExtra{ grid-column:1 / -1; }
+      .grid4{ grid-template-columns:1fr; }
+    }
+    @media (max-width:760px){
+      .grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .subgrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .voiceRow{ grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MCA Ideal Chord Moments Viewer + Harmonic Distribution + Audio</h1>
+
+  <div class="panel">
+    <div class="grid">
+      <div>
+        <label>基準音 A [Hz]</label>
+        <input id="baseHz" type="number" value="220" step="0.1" />
+      </div>
+      <div>
+        <label>音数 M</label>
+        <input id="voiceCount" type="number" value="4" min="1" max="12" step="1" />
+      </div>
+      <div>
+        <label>和音制御色相モード</label>
+        <select id="controlMode">
+          <option value="theta">θ</option>
+          <option value="phi" selected>φ</option>
+          <option value="psi">ψ</option>
+        </select>
+      </div>
+      <div>
+        <label>観測色相モード</label>
+        <select id="displayMode">
+          <option value="theta">θ</option>
+          <option value="phi">φ</option>
+          <option value="psi">ψ</option>
+          <option value="chi">χ</option>
+        </select>
+      </div>
+      <div>
+        <label>分布解像度 n_theta</label>
+        <input id="nTheta" type="number" value="2048" min="180" step="1" />
+      </div>
+      <div>
+        <label>モーメント上限 Nmax</label>
+        <input id="momentMaxN" type="number" value="12" min="1" max="64" step="1" />
+      </div>
+      <div>
+        <label>ν_min</label>
+        <input id="nuMin" type="number" value="0" step="0.1" />
+      </div>
+      <div>
+        <label>ν_max（Nmax連動）</label>
+        <input id="nuMax" type="number" value="12" step="0.1" />
+      </div>
+      <div>
+        <label>νサンプル数</label>
+        <input id="nuSamples" type="number" value="400" min="20" max="5000" step="1" />
+      </div>
+
+      <div>
+        <label>表示モーメント n（0=全部）</label>
+        <input id="selectedMomentN" type="range" min="0" max="12" value="0" step="1" />
+      </div>
+      <div>
+        <label>n 表示</label>
+        <input id="selectedMomentNValue" type="text" value="0 (all)" readonly />
+      </div>
+      <div>
+        <label>和音 n等分指定モード</label>
+        <input id="chordDiscreteMode" type="checkbox" />
+      </div>
+      <div>
+        <label>和音等分数 n</label>
+        <input id="chordDivN" type="number" value="12" min="1" max="120" step="1" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="applyBtn">更新</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="presetEvenBtn">l を等間隔で初期化</button>
+      </div>
+      <div>
+        <label>発音波形</label>
+        <select id="audioWaveform">
+          <option value="sine" selected>sine</option>
+          <option value="triangle">triangle</option>
+          <option value="sawtooth">sawtooth</option>
+          <option value="square">square</option>
+        </select>
+      </div>
+      <div>
+        <label>発音音量</label>
+        <input id="audioVolume" type="range" min="0" max="0.4" value="0.12" step="0.005" />
+      </div>
+      <div>
+        <label>音量表示</label>
+        <input id="audioVolumeValue" type="text" value="0.120" readonly />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="audioToggleBtn">和音を鳴らす: OFF</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="stopAudioBtn">音を停止</button>
+      </div>
+      <div>
+        <label>モーメントDC除去</label>
+        <input id="removeUniformMode" type="checkbox" />
+      </div>
+      <div>
+        <label>DC除去表示</label>
+        <input id="removeUniformModeValue" type="text" value="OFF" readonly />
+      </div>
+    </div>
+
+    <div class="sliderBox">
+      <div><b>f_ref 指定</b></div>
+      <div class="subgrid">
+        <div>
+          <label>A4 [Hz]</label>
+          <input id="a4Hz" type="number" value="440" step="0.1" />
+        </div>
+        <div>
+          <label>f_ref 制御色相モード</label>
+          <select id="fRefControlMode">
+            <option value="theta">θ</option>
+            <option value="phi" selected>φ</option>
+            <option value="psi">ψ</option>
+          </select>
+        </div>
+        <div>
+          <label>f_ref n等分指定モード</label>
+          <input id="fRefDiscreteMode" type="checkbox" />
+        </div>
+        <div>
+          <label>f_ref 等分数 n</label>
+          <input id="fRefDivN" type="number" value="12" min="1" max="120" step="1" />
+        </div>
+        <div>
+          <label>実際の f_ref</label>
+          <input id="fRefValue" type="text" value="" readonly />
+        </div>
+      </div>
+
+      <div class="voiceRow" style="margin-top:12px;">
+        <div><strong>f_ref</strong></div>
+        <div><input id="fRefSlider" type="range" min="0" max="1" step="0.001" value="0"></div>
+        <div><input id="fRefLValue" type="number" min="0" max="1" step="0.001" value="0.000"></div>
+        <div class="voiceExtra"><input id="fRefInfo" type="text" value="continuous l=0.000" readonly></div>
+        <div><input id="fRefModeValue" type="text" value="φ" readonly></div>
+      </div>
+
+      <div class="help">
+        red_note / red_octave の代わりに、A4 に対する θ / φ / ψ 制御で f_ref を直接指定します。
+        n等分指定モード ON のときはスライダーが離散化し、l = k / n の点だけを取ります。
+      </div>
+    </div>
+
+    <div class="sliderBox">
+      <div><b>和音の l 値指定</b></div>
+      <div class="small">音1は基準音 A 固定。音2〜音M は A に対する相対位置 l∈[0,1] で指定します。</div>
+      <div id="voiceControls" style="margin-top:12px;"></div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px;">
+        <button id="presetMajorBtn" style="max-width:220px;">φメジャー風プリセット</button>
+        <button id="presetMinorBtn" style="max-width:220px;">ψマイナー風プリセット</button>
+      </div>
+    </div>
+
+    <div id="status" class="status">設定を動かすと理想分布とモーメントが更新されます。</div>
+    <div class="help">
+      和音制御は θ / φ / ψ のみ。観測は θ / φ / ψ / χ。n=0 は w₁〜wₙ を複素平面上に全部同時表示します。発音ONのときは現在の理想和音を Web Audio で持続発音し、スライダー変更に追従します。理想分布とモーメントは発音波形に応じた倍音列を各色相へ射影して計算します。
+    </div>
+  </div>
+
+  <div class="grid4">
+    <div class="panel">
+      <div class="small">理想色相分布 H</div>
+      <canvas id="distCanvas" width="1200" height="420"></canvas>
+    </div>
+    <div class="panel">
+      <div class="small">一次重心 w₁</div>
+      <canvas id="centroidCanvas" width="900" height="900"></canvas>
+    </div>
+    <div class="panel">
+      <div class="small">n次モーメント複素平面</div>
+      <canvas id="momentCanvas" width="1200" height="900"></canvas>
+    </div>
+    <div class="panel">
+      <div class="small">モーメント彩度列 |w_n|</div>
+      <canvas id="momentSpectrumCanvas" width="1400" height="360"></canvas>
+      <div id="infoBox" class="mono small" style="margin-top:12px;"></div>
+    </div>
+    <div class="panel">
+      <div class="small">連続モーメント曲線 w(ν) の複素平面</div>
+      <canvas id="continuousCurveCanvas" width="1200" height="900"></canvas>
+    </div>
+    <div class="panel">
+      <div class="small">連続モーメント曲線の彩度グラフ |w(ν)|</div>
+      <canvas id="continuousSpectrumCanvas" width="1400" height="360"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div><b>一致探索スライダー</b></div>
+    <div class="grid" style="margin-top:12px;">
+      <div>
+        <label>一致タイプ</label>
+        <select id="searchMode">
+          <option value="curve" selected>軌跡一致</option>
+          <option value="abs">絶対値一致</option>
+        </select>
+      </div>
+      <div>
+        <label>探索用離散分母 n</label>
+        <input id="searchDivN" type="number" value="12" min="1" max="36" step="1" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="searchAnalyzeBtn">解析</button>
+      </div>
+      <div>
+        <label>候補数</label>
+        <input id="searchCountValue" type="text" value="未解析" readonly />
+      </div>
+      <div>
+        <label>現在候補</label>
+        <input id="searchIndexValue" type="text" value="未解析" readonly />
+      </div>
+      <div>
+        <label>探索対象</label>
+        <input id="searchTargetValue" type="text" value="w(ν)" readonly />
+      </div>
+    </div>
+    <div class="sliderBox">
+      <div class="voiceRow" style="margin-top:0; grid-template-columns:140px 1fr 240px 220px 160px;">
+        <div><strong>一致候補</strong></div>
+        <div><input id="searchIndexSlider" type="range" min="0" max="0" step="1" value="0" disabled></div>
+        <div><input id="searchMatchLabel" type="text" value="未解析" readonly></div>
+        <div><input id="searchMatchError" type="text" value="error = -" readonly></div>
+        <div><input id="searchDisplayMode" type="text" value="基準和音表示" readonly></div>
+      </div>
+      <div class="help">
+        解析ボタンを押した時点の現在和音を基準に、一致度の高い離散 k/n 和音候補を列挙します。0 は基準和音そのものです。1 以上では候補和音へ表示と再生を切り替えます。元の指定スライダー値は変化しません。DC除去チェックの ON/OFF に応じて、探索対象は w(ν)/|w(ν)| または w₀(ν)/|w₀(ν)| に切り替わります。条件変更後は未解析状態に戻ります。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const twoPi = 2 * Math.PI;
+const NOTE_LABELS_FLAT = ["C","D♭","D","E♭","E","F","G♭","G","A♭","A","B♭","B"];
+const NOTE_LABELS_5TH = ["C","G","D","A","E","B","G♭","D♭","A♭","E♭","B♭","F"];
+
+let currentAnalysis = null;
+let currentVoiceSettings = [];
+let searchMatches = [];
+let searchReferenceAnalysis = null;
+let searchAnalyzed = false;
+let audioCtx = null;
+let audioMasterGain = null;
+let chordVoices = [];
+let audioEnabled = false;
+
+const statusEl = document.getElementById('status');
+const voiceControlsEl = document.getElementById('voiceControls');
+const distCanvas = document.getElementById('distCanvas');
+const centroidCanvas = document.getElementById('centroidCanvas');
+const momentCanvas = document.getElementById('momentCanvas');
+const momentSpectrumCanvas = document.getElementById('momentSpectrumCanvas');
+const continuousCurveCanvas = document.getElementById('continuousCurveCanvas');
+const continuousSpectrumCanvas = document.getElementById('continuousSpectrumCanvas');
+const infoBox = document.getElementById('infoBox');
+const selectedMomentNInput = document.getElementById('selectedMomentN');
+const selectedMomentNValue = document.getElementById('selectedMomentNValue');
+const audioWaveformEl = document.getElementById('audioWaveform');
+const audioVolumeEl = document.getElementById('audioVolume');
+const audioVolumeValueEl = document.getElementById('audioVolumeValue');
+const audioToggleBtn = document.getElementById('audioToggleBtn');
+const stopAudioBtn = document.getElementById('stopAudioBtn');
+const removeUniformModeEl = document.getElementById('removeUniformMode');
+const removeUniformModeValueEl = document.getElementById('removeUniformModeValue');
+const searchModeEl = document.getElementById('searchMode');
+const searchAnalyzeBtnEl = document.getElementById('searchAnalyzeBtn');
+const searchDivNEl = document.getElementById('searchDivN');
+const searchCountValueEl = document.getElementById('searchCountValue');
+const searchTargetValueEl = document.getElementById('searchTargetValue');
+const searchIndexSliderEl = document.getElementById('searchIndexSlider');
+const searchIndexValueEl = document.getElementById('searchIndexValue');
+const searchMatchLabelEl = document.getElementById('searchMatchLabel');
+const searchMatchErrorEl = document.getElementById('searchMatchError');
+const searchDisplayModeEl = document.getElementById('searchDisplayMode');
+
+const fRefSlider = document.getElementById('fRefSlider');
+const fRefLValue = document.getElementById('fRefLValue');
+const fRefInfo = document.getElementById('fRefInfo');
+const fRefValue = document.getElementById('fRefValue');
+const fRefModeValue = document.getElementById('fRefModeValue');
+
+function setStatus(msg){ statusEl.textContent = msg; }
+function wrap2pi(x){ return ((x % twoPi) + twoPi) % twoPi; }
+
+function currentParams(){
+  return {
+    baseHz: Number(document.getElementById('baseHz').value),
+    voiceCount: Math.max(1, Math.min(12, Math.floor(Number(document.getElementById('voiceCount').value)))),
+    controlMode: document.getElementById('controlMode').value,
+    displayMode: document.getElementById('displayMode').value,
+    nTheta: Math.max(180, Math.floor(Number(document.getElementById('nTheta').value))),
+    momentMaxN: Math.max(1, Math.floor(Number(document.getElementById('momentMaxN').value))),
+    selectedMomentN: Math.max(0, Math.floor(Number(document.getElementById('selectedMomentN').value))),
+    chordDiscreteMode: document.getElementById('chordDiscreteMode').checked,
+    chordDivN: Math.max(1, Math.floor(Number(document.getElementById('chordDivN').value))),
+    a4Hz: Number(document.getElementById('a4Hz').value),
+    fRefControlMode: document.getElementById('fRefControlMode').value,
+    fRefDiscreteMode: document.getElementById('fRefDiscreteMode').checked,
+    fRefDivN: Math.max(1, Math.floor(Number(document.getElementById('fRefDivN').value))),
+    nuMin: Number(document.getElementById('nuMin').value),
+    nuMax: Number(document.getElementById('nuMax').value),
+    nuSamples: Math.max(20, Math.floor(Number(document.getElementById('nuSamples').value))),
+    removeUniformMode: document.getElementById('removeUniformMode').checked,
+    searchMode: searchModeEl.value,
+    searchDivN: Math.max(1, Math.min(36, Math.floor(Number(searchDivNEl.value) || 12))),
+  };
+}
+
+function toX(v, vmin, vmax, left, right){
+  return left + (v - vmin) * (right - left) / (vmax - vmin);
+}
+function toY(v, vmin, vmax, top, bottom){
+  return bottom - (v - vmin) * (bottom - top) / (vmax - vmin);
+}
+function hsvToRgbObj(h, s, v){
+  let r,g,b;
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  switch(i % 6){
+    case 0: r=v; g=t; b=p; break;
+    case 1: r=q; g=v; b=p; break;
+    case 2: r=p; g=v; b=t; break;
+    case 3: r=p; g=q; b=v; break;
+    case 4: r=t; g=p; b=v; break;
+    case 5: r=v; g=p; b=q; break;
+  }
+  return {r:Math.round(r*255), g:Math.round(g*255), b:Math.round(b*255)};
+}
+function hsvToCss(h, s, v){
+  const c = hsvToRgbObj(h, s, v);
+  return `rgb(${c.r},${c.g},${c.b})`;
+}
+
+function hueThetaFromFreq(freq, fRef){
+  if(!(freq > 0) || !(fRef > 0)) return null;
+  return twoPi * ((((Math.log2(freq / fRef)) % 1) + 1) % 1);
+}
+function huePhiFromFreq(freq, fRef){
+  const theta = hueThetaFromFreq(freq, fRef);
+  if(theta === null) return null;
+  return twoPi * (Math.pow(2, theta / twoPi) - 1);
+}
+function huePsiFromFreq(freq, fRef){
+  const theta = hueThetaFromFreq(freq, fRef);
+  if(theta === null) return null;
+  return twoPi * 2 * (1 - Math.pow(2, -(theta / twoPi)));
+}
+function hueChiFromFreq(freq, fRef){
+  const theta = hueThetaFromFreq(freq, fRef);
+  if(theta === null) return null;
+  return wrap2pi(7 * theta);
+}
+function hueByMode(freq, fRef, mode){
+  if(mode === 'theta') return hueThetaFromFreq(freq, fRef);
+  if(mode === 'phi') return huePhiFromFreq(freq, fRef);
+  if(mode === 'psi') return huePsiFromFreq(freq, fRef);
+  if(mode === 'chi') return hueChiFromFreq(freq, fRef);
+  return hueThetaFromFreq(freq, fRef);
+}
+
+function freqFromControl(baseHz, l, mode){
+  l = Math.max(0, Math.min(1, l));
+  if(!(baseHz > 0)) return null;
+  if(mode === 'theta') return baseHz * Math.pow(2, l);
+  if(mode === 'phi') return baseHz * (1 + l);
+  if(mode === 'psi'){
+    const denom = 1 - l / 2;
+    if(Math.abs(denom) < 1e-12) return null;
+    return baseHz / denom;
+  }
+  return baseHz * Math.pow(2, l);
+}
+
+function updateMomentControls(){
+  const p = currentParams();
+  selectedMomentNInput.max = String(p.momentMaxN);
+  let n = Math.floor(Number(selectedMomentNInput.value) || 0);
+  if(n < 0) n = 0;
+  if(n > p.momentMaxN) n = p.momentMaxN;
+  selectedMomentNInput.value = String(n);
+  selectedMomentNValue.value = n === 0 ? '0 (all)' : String(n);
+
+  const nuMaxInput = document.getElementById('nuMax');
+  const v = Number(nuMaxInput.value);
+  if(!Number.isFinite(v) || Math.abs(v - p.momentMaxN) < 1e-9 || v < 0){
+    nuMaxInput.value = String(p.momentMaxN);
+  }
+}
+
+function syncFRefControls(){
+  const p = currentParams();
+  fRefModeValue.value = p.fRefControlMode;
+  if(p.fRefDiscreteMode){
+    fRefSlider.min = '0';
+    fRefSlider.max = String(p.fRefDivN);
+    fRefSlider.step = '1';
+    let k = Math.round(Number(fRefSlider.value));
+    if(k < 0) k = 0;
+    if(k > p.fRefDivN) k = p.fRefDivN;
+    fRefSlider.value = String(k);
+    const l = k / p.fRefDivN;
+    fRefLValue.value = l.toFixed(3);
+    fRefInfo.value = `discrete: k=${k}, n=${p.fRefDivN}, l=${l.toFixed(6)}`;
+  } else {
+    fRefSlider.min = '0';
+    fRefSlider.max = '1';
+    fRefSlider.step = '0.001';
+    let l = Number(fRefSlider.value);
+    if(!Number.isFinite(l)) l = 0;
+    l = Math.max(0, Math.min(1, l));
+    fRefSlider.value = String(l);
+    fRefLValue.value = l.toFixed(3);
+    fRefInfo.value = `continuous: l=${l.toFixed(6)}`;
+  }
+  const fRef = getFRefFromControls();
+  fRefValue.value = `${fRef.toFixed(6)} Hz`;
+}
+
+function getFRefL(){
+  const p = currentParams();
+  if(p.fRefDiscreteMode){
+    const k = Math.round(Number(fRefSlider.value));
+    return k / p.fRefDivN;
+  }
+  return Math.max(0, Math.min(1, Number(fRefSlider.value)));
+}
+
+function getFRefFromControls(){
+  const p = currentParams();
+  const l = getFRefL();
+  return freqFromControl(p.a4Hz, l, p.fRefControlMode);
+}
+
+function defaultVoiceSetting(index, total, params){
+  const baseL = total <= 1 ? 0.5 : (index + 1) / total;
+  return {
+    l: Math.max(0, Math.min(1, baseL)),
+    discrete: !!params.chordDiscreteMode,
+    divN: Math.max(1, params.chordDivN)
+  };
+}
+
+function normalizeVoiceSetting(setting, params, fallbackIndex = 0, total = 1){
+  const fallback = defaultVoiceSetting(fallbackIndex, total, params);
+  const divN = Math.max(1, Math.floor(Number(setting?.divN) || fallback.divN));
+  let l = Number(setting?.l);
+  if(!Number.isFinite(l)) l = fallback.l;
+  l = Math.max(0, Math.min(1, l));
+  const discrete = setting?.discrete != null ? !!setting.discrete : fallback.discrete;
+  if(discrete){
+    l = Math.round(l * divN) / divN;
+  }
+  return {l, discrete, divN};
+}
+
+function syncVoiceSettingsLength(){
+  const p = currentParams();
+  const need = Math.max(0, p.voiceCount - 1);
+  const next = [];
+  for(let i=0;i<need;i++){
+    const existing = currentVoiceSettings[i];
+    next.push(normalizeVoiceSetting(existing, p, i, need));
+  }
+  currentVoiceSettings = next;
+}
+
+
+function buildVoiceControls(){
+  const p = currentParams();
+  const needSliders = Math.max(0, p.voiceCount - 1);
+  syncVoiceSettingsLength();
+
+  voiceControlsEl.innerHTML = '';
+
+  const baseRow = document.createElement('div');
+  baseRow.className = 'voiceRow';
+  baseRow.innerHTML = `
+    <div><strong>voice 1</strong></div>
+    <div class="small muted">base A (fixed)</div>
+    <div><input type="text" value="base" readonly></div>
+    <div class="voiceExtra"><input type="text" value="${p.baseHz.toFixed(4)} Hz" readonly></div>
+    <div><input type="text" value="l = 0" readonly></div>
+    <div><input type="text" value="-" readonly></div>
+    <div><input type="text" value="-" readonly></div>
+  `;
+  voiceControlsEl.appendChild(baseRow);
+
+  for(let i=0;i<needSliders;i++){
+    const setting = currentVoiceSettings[i];
+    const freq = freqFromControl(p.baseHz, setting.l, p.controlMode);
+    const row = document.createElement('div');
+    row.className = 'voiceRow';
+    row.innerHTML = `
+      <div><strong>voice ${i + 2}</strong></div>
+      <div><input data-l-idx="${i}" type="range" value="${setting.l}"></div>
+      <div><input data-l-num-idx="${i}" id="lVal_${i}" type="number" min="0" max="1" step="0.001" value="${setting.l.toFixed(3)}"></div>
+      <div class="voiceExtra"><input id="fVal_${i}" type="text" value="${freq != null ? freq.toFixed(4) + ' Hz' : 'invalid'}" readonly></div>
+      <div><input id="modeVal_${i}" type="text" value="" readonly></div>
+      <div><input data-disc-idx="${i}" type="checkbox" ${setting.discrete ? 'checked' : ''}></div>
+      <div><input data-divn-idx="${i}" id="divNVal_${i}" type="number" min="1" max="120" step="1" value="${setting.divN}"></div>
+    `;
+    voiceControlsEl.appendChild(row);
+  }
+
+  syncChordDiscreteControls();
+
+  voiceControlsEl.querySelectorAll('input[type=range][data-l-idx]').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const idx = Number(e.target.dataset.lIdx);
+      const setting = currentVoiceSettings[idx];
+      let val = Number(e.target.value);
+      if(setting.discrete){
+        const k = Math.round(val);
+        setting.l = k / setting.divN;
+      } else {
+        setting.l = Math.max(0, Math.min(1, val));
+      }
+      refreshVoiceReadouts();
+      invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+      analyzeAndRender();
+    });
+  });
+
+  voiceControlsEl.querySelectorAll('input[type=number][data-l-num-idx]').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const idx = Number(e.target.dataset.lNumIdx);
+      const setting = currentVoiceSettings[idx];
+      let v = Number(e.target.value);
+      if(!Number.isFinite(v)) return;
+      v = Math.max(0, Math.min(1, v));
+      setting.l = setting.discrete ? (Math.round(v * setting.divN) / setting.divN) : v;
+      refreshVoiceReadouts();
+      invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+      analyzeAndRender();
+    });
+  });
+
+  voiceControlsEl.querySelectorAll('input[type=checkbox][data-disc-idx]').forEach(el => {
+    el.addEventListener('change', (e) => {
+      const idx = Number(e.target.dataset.discIdx);
+      const setting = currentVoiceSettings[idx];
+      setting.discrete = !!e.target.checked;
+      if(setting.discrete){
+        setting.l = Math.round(setting.l * setting.divN) / setting.divN;
+      }
+      refreshVoiceReadouts();
+      invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+      analyzeAndRender();
+    });
+  });
+
+  voiceControlsEl.querySelectorAll('input[type=number][data-divn-idx]').forEach(el => {
+    el.addEventListener('input', (e) => {
+      const idx = Number(e.target.dataset.divnIdx);
+      const setting = currentVoiceSettings[idx];
+      let n = Math.max(1, Math.min(120, Math.floor(Number(e.target.value) || 1)));
+      setting.divN = n;
+      if(setting.discrete){
+        setting.l = Math.round(setting.l * n) / n;
+      }
+      refreshVoiceReadouts();
+      invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+      analyzeAndRender();
+    });
+  });
+}
+
+function syncChordDiscreteControls(){
+  const sliders = voiceControlsEl.querySelectorAll('input[type=range][data-l-idx]');
+  sliders.forEach((sl, i) => {
+    const setting = currentVoiceSettings[i];
+    if(setting.discrete){
+      sl.min = '0';
+      sl.max = String(setting.divN);
+      sl.step = '1';
+      const k = Math.round(setting.l * setting.divN);
+      sl.value = String(k);
+    } else {
+      sl.min = '0';
+      sl.max = '1';
+      sl.step = '0.001';
+      sl.value = String(setting.l);
+    }
+  });
+}
+
+function refreshVoiceReadouts(){
+  const p = currentParams();
+  syncChordDiscreteControls();
+
+  for(let i=0;i<currentVoiceSettings.length;i++){
+    const setting = currentVoiceSettings[i];
+    const lv = document.getElementById(`lVal_${i}`);
+    const fv = document.getElementById(`fVal_${i}`);
+    const mv = document.getElementById(`modeVal_${i}`);
+    const nv = document.getElementById(`divNVal_${i}`);
+    const freq = freqFromControl(p.baseHz, setting.l, p.controlMode);
+    if(lv) lv.value = setting.l.toFixed(3);
+    if(fv) fv.value = freq != null ? `${freq.toFixed(4)} Hz` : 'invalid';
+    if(mv){
+      if(setting.discrete){
+        const k = Math.round(setting.l * setting.divN);
+        mv.value = `k=${k}/${setting.divN}`;
+      } else {
+        mv.value = p.controlMode;
+      }
+    }
+    if(nv) nv.value = String(setting.divN);
+  }
+}
+function noteLabelsForMode(mode){
+  return mode === 'chi' ? NOTE_LABELS_5TH : NOTE_LABELS_FLAT;
+}
+
+
+function updateRemoveUniformReadout(){
+  if(removeUniformModeValueEl){
+    removeUniformModeValueEl.value = removeUniformModeEl.checked ? 'ON (H-1/2π)' : 'OFF';
+  }
+}
+
+function buildMomentDistribution(H, nTheta, removeUniformMode){
+  if(!removeUniformMode) return H;
+  const adjusted = new Float64Array(nTheta);
+  const uniformMass = 1 / nTheta; // discrete equivalent of density 1/(2π)
+  for(let i=0;i<nTheta;i++) adjusted[i] = H[i] - uniformMass;
+  return adjusted;
+}
+
+function cloneVoiceSettings(settings){
+  return settings.map(s => ({l:s.l, discrete:!!s.discrete, divN:s.divN}));
+}
+
+function getSearchFeatureLabel(params){
+  if(params.searchMode === 'abs'){
+    return params.removeUniformMode ? '|w₀(ν)|' : '|w(ν)|';
+  }
+  return params.removeUniformMode ? 'w₀(ν)' : 'w(ν)';
+}
+
+function updateSearchTargetReadout(){
+  const p = currentParams();
+  if(searchTargetValueEl) searchTargetValueEl.value = getSearchFeatureLabel(p);
+}
+
+function estimateCombinationCount(n, m){
+  let result = 1;
+  for(let i=1;i<=m;i++) result = result * (n + i) / i;
+  return Math.round(result);
+}
+
+function enumerateNondecreasingKTuples(n, m, callback){
+  const tuple = new Array(m).fill(0);
+  function rec(pos, start){
+    if(pos === m){
+      callback(tuple.slice());
+      return;
+    }
+    for(let k=start;k<=n;k++){
+      tuple[pos] = k;
+      rec(pos + 1, k);
+    }
+  }
+  rec(0, 0);
+}
+
+function subsampleCurvePoints(curve, maxPoints = 120){
+  if(!Array.isArray(curve) || curve.length <= maxPoints) return curve || [];
+  const pts = [];
+  const last = curve.length - 1;
+  for(let i=0;i<maxPoints;i++){
+    const idx = Math.round(last * i / Math.max(1, maxPoints - 1));
+    pts.push(curve[idx]);
+  }
+  return pts;
+}
+
+function symmetricCurveSetDistance(refCurve, curve){
+  const A = subsampleCurvePoints(refCurve, 120);
+  const B = subsampleCurvePoints(curve, 120);
+  if(A.length === 0 || B.length === 0) return Infinity;
+
+  function avgNearestDist2(P, Q){
+    let total = 0;
+    for(let i=0;i<P.length;i++){
+      let best = Infinity;
+      const pr = P[i].re, pi = P[i].im;
+      for(let j=0;j<Q.length;j++){
+        const dr = pr - Q[j].re;
+        const di = pi - Q[j].im;
+        const d2 = dr * dr + di * di;
+        if(d2 < best) best = d2;
+      }
+      total += best;
+    }
+    return total / P.length;
+  }
+
+  return avgNearestDist2(A, B) + avgNearestDist2(B, A);
+}
+
+function computeMatchError(refCurve, curve, mode){
+  if(mode === 'abs'){
+    let err = 0;
+    const N = Math.min(refCurve.length, curve.length);
+    for(let i=0;i<N;i++){
+      const d = refCurve[i].abs - curve[i].abs;
+      err += d * d;
+    }
+    return err / Math.max(1, N);
+  }
+
+  // 曲線一致は「同じ ν における点の一致」ではなく、
+  // 複素平面上の軌跡（値域）の形の一致として比較する。
+  return symmetricCurveSetDistance(refCurve, curve);
+}
+
+function computeAnalysisBundle(params, voiceSettings){
+  const bundle = analyzeIdealChord(params, voiceSettings);
+  bundle.continuousCurve = computeContinuousMomentCurve(
+    bundle.momentDistribution,
+    bundle.thetaVals,
+    params.nuMin,
+    params.nuMax,
+    params.nuSamples
+  );
+  bundle.voiceSettings = cloneVoiceSettings(voiceSettings);
+  return bundle;
+}
+
+function buildReferenceSearchState(){
+  return cloneVoiceSettings(currentVoiceSettings);
+}
+
+function buildSearchMatches(params){
+  searchReferenceAnalysis = computeAnalysisBundle(params, buildReferenceSearchState());
+  const matches = [{
+    label: 'self',
+    error: 0,
+    voiceSettings: buildReferenceSearchState(),
+    analysis: searchReferenceAnalysis
+  }];
+
+  const m = Math.max(0, params.voiceCount - 1);
+  const n = params.searchDivN;
+  const comboCount = estimateCombinationCount(n, m);
+  if(m > 5 || comboCount > 50000){
+    setStatus(`一致探索候補が多すぎるため self のみ表示します (m=${m}, n=${n}, combinations≈${comboCount})`);
+    return matches;
+  }
+
+  const refCurve = searchReferenceAnalysis.continuousCurve;
+  enumerateNondecreasingKTuples(n, m, (tuple) => {
+    const candidateSettings = tuple.map(k => ({l: k / n, discrete: true, divN: n}));
+    const candidateAnalysis = computeAnalysisBundle(params, candidateSettings);
+    const error = computeMatchError(refCurve, candidateAnalysis.continuousCurve, params.searchMode);
+    const label = tuple.length ? tuple.map(k => `${k}/${n}`).join(', ') : 'self';
+    matches.push({
+      label,
+      error,
+      voiceSettings: candidateSettings,
+      analysis: candidateAnalysis
+    });
+  });
+
+  const head = matches[0];
+  const tail = matches.slice(1).sort((a, b) => a.error - b.error);
+  return [head, ...tail];
+}
+
+function invalidateSearch(reason = ''){
+  searchAnalyzed = false;
+  searchMatches = [];
+  searchReferenceAnalysis = null;
+  if(searchIndexSliderEl) searchIndexSliderEl.value = '0';
+  if(reason){
+    setStatus(reason);
+  }
+  updateSearchUIState();
+}
+
+function runSearchAnalysis(){
+  const params = currentParams();
+  searchMatches = buildSearchMatches(params);
+  searchAnalyzed = true;
+  if(searchIndexSliderEl) searchIndexSliderEl.value = '0';
+  updateSearchUIState();
+  setStatus(`一致探索を解析しました: target=${getSearchFeatureLabel(params)}, type=${params.searchMode === 'abs' ? 'abs' : 'trajectory'}, n=${params.searchDivN}, candidates=${Math.max(0, searchMatches.length - 1)}`);
+}
+
+function getSearchIndex(){
+  return Math.max(0, Math.min(searchMatches.length - 1, Math.floor(Number(searchIndexSliderEl.value) || 0)));
+}
+
+function syncSearchIndexReadouts(){
+  if(!searchAnalyzed){
+    if(searchCountValueEl) searchCountValueEl.value = '未解析';
+    if(searchIndexValueEl) searchIndexValueEl.value = '未解析';
+    if(searchMatchLabelEl) searchMatchLabelEl.value = '未解析';
+    if(searchMatchErrorEl) searchMatchErrorEl.value = 'error = -';
+    if(searchDisplayModeEl) searchDisplayModeEl.value = '基準和音表示';
+    return;
+  }
+  const idx = getSearchIndex();
+  const current = searchMatches[idx] || searchMatches[0] || {label:'self', error:0};
+  const total = Math.max(0, searchMatches.length - 1);
+  if(searchCountValueEl) searchCountValueEl.value = String(total);
+  if(searchIndexValueEl) searchIndexValueEl.value = `${idx} / ${current.label}`;
+  if(searchMatchLabelEl) searchMatchLabelEl.value = current.label;
+  if(searchMatchErrorEl) searchMatchErrorEl.value = `error = ${Number(current.error || 0).toExponential(3)}`;
+  if(searchDisplayModeEl) searchDisplayModeEl.value = idx === 0 ? '基準和音表示' : '一致候補表示';
+}
+
+function updateSearchUIState(){
+  const p = currentParams();
+  updateSearchTargetReadout();
+  searchIndexSliderEl.min = '0';
+  searchIndexSliderEl.max = String(Math.max(0, (searchAnalyzed ? searchMatches.length : 1) - 1));
+  searchIndexSliderEl.disabled = !searchAnalyzed;
+  syncSearchIndexReadouts();
+}
+
+function getDisplayedAnalysis(params){
+  if(!searchAnalyzed) return searchReferenceAnalysis;
+  const idx = getSearchIndex();
+  const match = searchMatches[idx] || searchMatches[0];
+  return match ? match.analysis : searchReferenceAnalysis;
+}
+
+function harmonicSeries(waveform, maxK){
+  const list = [];
+  if(waveform === 'sine'){
+    list.push({k:1, w:1});
+  } else if(waveform === 'square'){
+    for(let k=1; k<=maxK; k+=2) list.push({k, w:1/(k*k)});
+  } else if(waveform === 'triangle'){
+    for(let k=1; k<=maxK; k+=2) list.push({k, w:1/(k*k*k*k)});
+  } else if(waveform === 'sawtooth'){
+    for(let k=1; k<=maxK; k++) list.push({k, w:1/(k*k)});
+  } else {
+    list.push({k:1, w:1});
+  }
+  return list;
+}
+
+function addToneHarmonicsToH(H, freq, fRef, mode, waveform, maxK, toneWeight){
+  const harmonics = harmonicSeries(waveform, maxK);
+  let sum = 0;
+  for(const h of harmonics) sum += h.w;
+  if(sum <= 0) return;
+
+  for(const h of harmonics){
+    const f = h.k * freq;
+    const angle = hueByMode(f, fRef, mode);
+    if(angle == null) continue;
+    let idx = Math.floor((wrap2pi(angle) / twoPi) * H.length);
+    if(idx >= H.length) idx = H.length - 1;
+    H[idx] += toneWeight * (h.w / sum);
+  }
+}
+
+function computeMomentsFromDistribution(H, thetaVals, maxN){
+  const moments = [];
+  for(let nMoment=1; nMoment<=maxN; nMoment++){
+    let re = 0, im = 0;
+    for(let i=0;i<H.length;i++){
+      const a = nMoment * thetaVals[i];
+      re += H[i] * Math.cos(a);
+      im += H[i] * Math.sin(a);
+    }
+    const abs = Math.hypot(re, im);
+    const arg = wrap2pi(Math.atan2(im, re));
+    moments.push({n:nMoment, re, im, abs, arg});
+  }
+  return moments;
+}
+
+
+function computeContinuousMomentCurve(H, thetaVals, nuMin, nuMax, nuSamples){
+  let n0 = Number.isFinite(nuMin) ? nuMin : 0;
+  let n1 = Number.isFinite(nuMax) ? nuMax : 12;
+  if(n1 < n0){
+    const t = n0; n0 = n1; n1 = t;
+  }
+  const S = Math.max(20, Math.floor(nuSamples || 400));
+  const pts = [];
+  for(let i=0;i<S;i++){
+    const nu = n0 + (n1 - n0) * (i / Math.max(1, S - 1));
+    let re = 0, im = 0;
+    for(let k=0;k<H.length;k++){
+      const a = nu * thetaVals[k];
+      re += H[k] * Math.cos(a);
+      im += H[k] * Math.sin(a);
+    }
+    pts.push({
+      nu,
+      re,
+      im,
+      abs: Math.hypot(re, im),
+      arg: wrap2pi(Math.atan2(im, re))
+    });
+  }
+  return pts;
+}
+function analyzeIdealChord(params, voiceSettingsOverride = currentVoiceSettings){
+  const fRef = getFRefFromControls();
+  const tones = [{
+    index: 1,
+    l: 0,
+    discrete: false,
+    divN: null,
+    freq: params.baseHz,
+    angle: hueByMode(params.baseHz, fRef, params.displayMode)
+  }];
+
+  voiceSettingsOverride.forEach((setting, i) => {
+    const f = freqFromControl(params.baseHz, setting.l, params.controlMode);
+    if(f != null && f > 0){
+      tones.push({
+        index: i + 2,
+        l: setting.l,
+        discrete: setting.discrete,
+        divN: setting.divN,
+        freq: f,
+        angle: hueByMode(f, fRef, params.displayMode)
+      });
+    }
+  });
+
+  const thetaVals = new Float64Array(params.nTheta);
+  const H = new Float64Array(params.nTheta);
+  for(let i=0;i<params.nTheta;i++) thetaVals[i] = twoPi * i / params.nTheta;
+
+  const waveform = audioWaveformEl ? audioWaveformEl.value : 'sine';
+  const maxK = 64;
+  const toneWeight = tones.length > 0 ? 1 / tones.length : 0;
+
+  tones.forEach(t => {
+    if(!(t.freq > 0)) return;
+    addToneHarmonicsToH(H, t.freq, fRef, params.displayMode, waveform, maxK, toneWeight);
+  });
+
+  const momentDistribution = buildMomentDistribution(H, params.nTheta, params.removeUniformMode);
+  const moments = computeMomentsFromDistribution(momentDistribution, thetaVals, params.momentMaxN);
+
+  const w1 = moments[0] || {re:0, im:0, abs:0, arg:0};
+
+  const noteLabels = noteLabelsForMode(params.displayMode);
+  const notePositions = noteLabels.map((name, idx) => {
+    if(params.displayMode === 'chi'){
+      const baseSemitone = [0,7,2,9,4,11,6,1,8,3,10,5][idx];
+      const freq = params.baseHz * Math.pow(2, baseSemitone / 12);
+      return { name, angle: hueByMode(freq, fRef, params.displayMode) };
+    }
+    const freq = params.baseHz * Math.pow(2, idx / 12);
+    return { name, angle: hueByMode(freq, fRef, params.displayMode) };
+  });
+
+  return {
+    fRef,
+    tones,
+    thetaVals,
+    H,
+    momentDistribution,
+    moments,
+    w1,
+    notePositions,
+  };
+}
+
+function drawDistribution(canvas, analysis, params){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const left = 84, right = W - 28, top = 38, bottom = H - 92;
+  const ymax = Math.max(1e-9, ...analysis.H) * 1.1;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 1;
+
+  analysis.notePositions.forEach((p) => {
+    const x = toX(p.angle, 0, twoPi, left, right);
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  });
+
+  const tickCount = 9;
+  ctx.fillStyle = '#ddd';
+  ctx.font = '12px sans-serif';
+  for(let i=0;i<tickCount;i++){
+    const a = twoPi * i / (tickCount - 1);
+    const x = toX(a, 0, twoPi, left, right);
+    ctx.beginPath();
+    ctx.moveTo(x, bottom);
+    ctx.lineTo(x, bottom + 6);
+    ctx.strokeStyle = '#888';
+    ctx.stroke();
+    const txt = (a / Math.PI).toFixed(2) + 'π';
+    ctx.fillText(txt, x - 16, bottom + 20);
+  }
+
+  analysis.thetaVals.forEach((a, i) => {
+    const val = analysis.H[i];
+    if(!(val > 0)) return;
+    const x = toX(a, 0, twoPi, left, right);
+    const y = toY(val, 0, ymax, top, bottom);
+    ctx.strokeStyle = hsvToCss((a % twoPi) / twoPi, 1, 1);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, bottom);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  });
+
+  analysis.tones.forEach((t, idx) => {
+    if(t.angle == null) return;
+    const x = toX(t.angle, 0, twoPi, left, right);
+    ctx.strokeStyle = idx === 0 ? '#ffd166' : '#4cc9f0';
+    ctx.lineWidth = idx === 0 ? 2.5 : 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(String(t.index), x + 4, top + 16 + (idx % 4) * 14);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px sans-serif';
+  ctx.fillText(`Ideal Hue Distribution H(${params.displayMode})`, left, 24);
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = '#bbb';
+  ctx.fillText(`chord=${params.controlMode}${params.chordDiscreteMode ? ' [n-div]' : ''}   f_ref=${params.fRefControlMode}${params.fRefDiscreteMode ? ' [n-div]' : ''}   M=${analysis.tones.length}   f_ref=${analysis.fRef.toFixed(4)} Hz`, left, H - 12);
+
+  ctx.save();
+  ctx.translate(20, (top + bottom) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = '#ddd';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('H', 0, 0);
+  ctx.restore();
+
+  ctx.fillStyle = '#ddd';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(`${params.displayMode} [radian]`, (left + right) / 2 - 34, H - 52);
+
+  ctx.strokeStyle = '#666';
+  ctx.strokeRect(left, top, right - left, bottom - top);
+}
+
+function drawComplexOne(canvas, moment, title, notePositions){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2;
+  const cy = H / 2 + 18;
+  const R = Math.min(W, H) * 0.33;
+
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, twoPi);
+  ctx.stroke();
+
+  for(let i=0;i<720;i++){
+    const a = twoPi * i / 720;
+    const x = cx + R * Math.cos(a);
+    const y = cy - R * Math.sin(a);
+    ctx.fillStyle = hsvToCss(i / 720, 1, 1);
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  notePositions.forEach((p) => {
+    const a = p.angle;
+    const x0 = cx + R * Math.cos(a);
+    const y0 = cy - R * Math.sin(a);
+    const x1 = cx + (R + 8) * Math.cos(a);
+    const y1 = cy - (R + 8) * Math.sin(a);
+    const xt = cx + (R + 28) * Math.cos(a);
+    const yt = cy - (R + 28) * Math.sin(a);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    const dx = xt >= cx ? 4 : -26;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(p.name, xt + dx, yt + 5);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '22px sans-serif';
+  ctx.fillText('+', cx - 6, cy + 7);
+
+  const hue = moment.arg / twoPi;
+  const sat = Math.max(0, Math.min(1, moment.abs));
+  const col = hsvToCss(hue, sat, 1);
+
+  const ex = cx + moment.re * R;
+  const ey = cy - moment.im * R;
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  const ang = Math.atan2(ey - cy, ex - cx);
+  const ah = 14;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - ah*Math.cos(ang - Math.PI/6), ey - ah*Math.sin(ang - Math.PI/6));
+  ctx.lineTo(ex - ah*Math.cos(ang + Math.PI/6), ey - ah*Math.sin(ang + Math.PI/6));
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(ex, ey, 10, 0, twoPi);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px sans-serif';
+  ctx.fillText(title, 28, 32);
+  ctx.font = '16px sans-serif';
+  ctx.fillText(`w = ${moment.re.toFixed(4)} + ${moment.im.toFixed(4)} i`, 28, H - 62);
+  ctx.fillText(`|w| = ${moment.abs.toFixed(4)}   Hue = ${hue.toFixed(4)}   Arg = ${moment.arg.toFixed(4)}`, 28, H - 36);
+}
+
+function drawMomentsComplex(canvas, analysis, params){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2;
+  const cy = H / 2 + 18;
+  const R = Math.min(W, H) * 0.33;
+
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, twoPi);
+  ctx.stroke();
+
+  for(let i=0;i<720;i++){
+    const a = twoPi * i / 720;
+    const x = cx + R * Math.cos(a);
+    const y = cy - R * Math.sin(a);
+    ctx.fillStyle = hsvToCss(i / 720, 1, 1);
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  analysis.notePositions.forEach((p) => {
+    const a = p.angle;
+    const x0 = cx + R * Math.cos(a);
+    const y0 = cy - R * Math.sin(a);
+    const x1 = cx + (R + 8) * Math.cos(a);
+    const y1 = cy - (R + 8) * Math.sin(a);
+    const xt = cx + (R + 28) * Math.cos(a);
+    const yt = cy - (R + 28) * Math.sin(a);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    const dx = xt >= cx ? 4 : -26;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(p.name, xt + dx, yt + 5);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '22px sans-serif';
+  ctx.fillText('+', cx - 6, cy + 7);
+
+  const selected = params.selectedMomentN;
+  const moments = analysis.moments || [];
+
+  if(selected === 0){
+    moments.forEach((m) => {
+      const ex = cx + m.re * R;
+      const ey = cy - m.im * R;
+      const col = hsvToCss(m.arg / twoPi, Math.max(0, Math.min(1, m.abs)), 1);
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, 6 + 5 * m.abs, 0, twoPi);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '14px sans-serif';
+      ctx.fillText(String(m.n), ex + 8, ey - 8);
+    });
+  } else {
+    const m = moments.find(x => x.n === selected);
+    if(m){
+      const ex = cx + m.re * R;
+      const ey = cy - m.im * R;
+      const col = hsvToCss(m.arg / twoPi, Math.max(0, Math.min(1, m.abs)), 1);
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+
+      const ang = Math.atan2(ey - cy, ex - cx);
+      const ah = 14;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - ah*Math.cos(ang - Math.PI/6), ey - ah*Math.sin(ang - Math.PI/6));
+      ctx.lineTo(ex - ah*Math.cos(ang + Math.PI/6), ey - ah*Math.sin(ang + Math.PI/6));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, 10, 0, twoPi);
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px sans-serif';
+      ctx.fillText(`n = ${m.n}`, ex + 12, ey - 10);
+    }
+  }
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px sans-serif';
+  ctx.fillText(selected === 0 ? `${params.removeUniformMode ? 'moments ŵ_n' : 'moments w_n'} in complex ${params.displayMode} hue plane (all)` : `${params.removeUniformMode ? 'moment ŵ_' : 'moment w_'}${selected} in complex ${params.displayMode} hue plane`, 28, 32);
+}
+
+function drawMomentSpectrum(canvas, analysis, params){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const left = 64, right = W - 24, top = 28, bottom = H - 50;
+  const moments = analysis.moments || [];
+  const ymax = Math.max(1e-9, ...moments.map(m => m.abs)) * 1.1;
+
+  ctx.strokeStyle = '#666';
+  ctx.strokeRect(left, top, right-left, bottom-top);
+
+  moments.forEach((m, idx) => {
+    const x = left + (idx + 0.5) * (right - left) / Math.max(1, moments.length);
+    const bw = 0.72 * (right - left) / Math.max(1, moments.length);
+    const y = toY(m.abs, 0, ymax, top, bottom);
+    const col = hsvToCss(m.arg / twoPi, Math.max(0, Math.min(1, m.abs)), 1);
+    ctx.fillStyle = col;
+    ctx.fillRect(x - bw/2, y, bw, bottom - y);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(String(m.n), x - 4, bottom + 18);
+
+    if(params.selectedMomentN === m.n){
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - bw/2, y, bw, bottom - y);
+    }
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px sans-serif';
+  ctx.fillText(params.removeUniformMode ? '|ŵ_n| spectrum (DC removed)' : '|w_n| spectrum', left, 20);
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = '#bbb';
+  ctx.fillText('bar color = HSV(arg(w_n), |w_n|, 1)', left + 150, 20);
+
+  ctx.fillStyle = '#ddd';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('n', (left + right) / 2, H - 12);
+
+  ctx.save();
+  ctx.translate(20, (top + bottom) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('|w_n|', 0, 0);
+  ctx.restore();
+}
+
+
+function drawContinuousCurve(canvas, analysis, params){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const curve = analysis.continuousCurve || [];
+  const cx = W / 2;
+  const cy = H / 2 + 18;
+  const R = Math.min(W, H) * 0.33;
+
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, twoPi);
+  ctx.stroke();
+
+  for(let i=0;i<720;i++){
+    const a = twoPi * i / 720;
+    const x = cx + R * Math.cos(a);
+    const y = cy - R * Math.sin(a);
+    ctx.fillStyle = hsvToCss(i / 720, 1, 1);
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  analysis.notePositions.forEach((p) => {
+    const a = p.angle;
+    const x0 = cx + R * Math.cos(a);
+    const y0 = cy - R * Math.sin(a);
+    const x1 = cx + (R + 8) * Math.cos(a);
+    const y1 = cy - (R + 8) * Math.sin(a);
+    const xt = cx + (R + 28) * Math.cos(a);
+    const yt = cy - (R + 28) * Math.sin(a);
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+    const dx = xt >= cx ? 4 : -26;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(p.name, xt + dx, yt + 5);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '22px sans-serif';
+  ctx.fillText('+', cx - 6, cy + 7);
+
+  for(let i=1;i<curve.length;i++){
+    const p0 = curve[i-1];
+    const p1 = curve[i];
+    const col = hsvToCss(p0.arg / twoPi, Math.max(0, Math.min(1, p0.abs)), 1);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(cx + p0.re * R, cy - p0.im * R);
+    ctx.lineTo(cx + p1.re * R, cy - p1.im * R);
+    ctx.stroke();
+  }
+
+  // overlay discrete moments lightly
+  (analysis.moments || []).forEach((m) => {
+    const ex = cx + m.re * R;
+    const ey = cy - m.im * R;
+    const col = hsvToCss(m.arg / twoPi, Math.max(0, Math.min(1, m.abs)), 1);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(ex, ey, 4.8, 0, twoPi);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(String(m.n), ex + 6, ey - 6);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px sans-serif';
+  ctx.fillText(`continuous moment curve ${params.removeUniformMode ? 'ŵ(ν)' : 'w(ν)'} in complex ${params.displayMode} hue plane`, 28, 32);
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = '#bbb';
+  ctx.fillText(`ν=[${params.nuMin}, ${params.nuMax}]   samples=${params.nuSamples}`, 28, 56);
+}
+function drawContinuousSpectrum(canvas, analysis, params){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const curve = analysis.continuousCurve || [];
+  const left = 64, right = W - 24, top = 28, bottom = H - 50;
+  let ymax = 1e-9;
+  curve.forEach(p => { if(p.abs > ymax) ymax = p.abs; });
+  ymax *= 1.1;
+
+  ctx.strokeStyle = '#666';
+  ctx.strokeRect(left, top, right-left, bottom-top);
+
+  for(let i=1;i<curve.length;i++){
+    const p0 = curve[i-1];
+    const p1 = curve[i];
+    const x0 = toX(p0.nu, params.nuMin, params.nuMax, left, right);
+    const y0 = toY(p0.abs, 0, ymax, top, bottom);
+    const x1 = toX(p1.nu, params.nuMin, params.nuMax, left, right);
+    const y1 = toY(p1.abs, 0, ymax, top, bottom);
+    const col = hsvToCss(p0.arg / twoPi, Math.max(0, Math.min(1, p0.abs)), 1);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+
+  // discrete moment markers
+  (analysis.moments || []).forEach((m) => {
+    if(m.n < params.nuMin || m.n > params.nuMax) return;
+    const x = toX(m.n, params.nuMin, params.nuMax, left, right);
+    const y = toY(m.abs, 0, ymax, top, bottom);
+    const col = hsvToCss(m.arg / twoPi, Math.max(0, Math.min(1, m.abs)), 1);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, twoPi);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(String(m.n), x + 6, y - 6);
+  });
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px sans-serif';
+  ctx.fillText(params.removeUniformMode ? '|ŵ(ν)| spectrum (DC removed)' : '|w(ν)| spectrum', left, 20);
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = '#bbb';
+  ctx.fillText('line color = HSV(arg(w(ν)), |w(ν)|, 1)', left + 150, 20);
+
+  ctx.fillStyle = '#ddd';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('ν', (left + right) / 2, H - 12);
+
+  ctx.save();
+  ctx.translate(20, (top + bottom) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('|w(ν)|', 0, 0);
+  ctx.restore();
+}
+function renderInfo(analysis, params){
+  const selectedMoment = params.selectedMomentN === 0 ? null : analysis.moments.find(m => m.n === params.selectedMomentN);
+  const toneLines = analysis.tones.map(t => {
+    const discreteInfo = t.index === 1 ? 'base' : (t.discrete ? `   discrete=k=${Math.round(t.l * t.divN)}/${t.divN}` : '   continuous');
+    return `voice ${t.index}: l=${t.l.toFixed(3)}${discreteInfo}   f=${t.freq.toFixed(6)} Hz   angle=${t.angle != null ? t.angle.toFixed(6) : 'none'} rad`;
+  }).join('\n');
+  const momentLines = analysis.moments.map(m => {
+    return `${params.removeUniformMode ? 'ŵ' : 'w'}_${m.n} = ${m.re.toFixed(6)} + ${m.im.toFixed(6)} i   |${params.removeUniformMode ? 'ŵ' : 'w'}_${m.n}| = ${m.abs.toFixed(6)}   arg = ${m.arg.toFixed(6)} rad`;
+  }).join('\n');
+
+  infoBox.textContent =
+`base A = ${params.baseHz.toFixed(6)} Hz
+M = ${analysis.tones.length}
+chord control = ${params.controlMode}${params.chordDiscreteMode ? ` [n=${params.chordDivN}]` : ' [continuous]'}
+f_ref control = ${params.fRefControlMode}${params.fRefDiscreteMode ? ` [n=${params.fRefDivN}]` : ' [continuous]'}
+f_ref = ${analysis.fRef.toFixed(6)} Hz
+selected_n = ${params.selectedMomentN === 0 ? 'all' : params.selectedMomentN}
+${selectedMoment ? `selected ${params.removeUniformMode ? 'ŵ_n' : 'w_n'} = ${selectedMoment.re.toFixed(6)} + ${selectedMoment.im.toFixed(6)} i
+selected |${params.removeUniformMode ? 'ŵ_n' : 'w_n'}| = ${selectedMoment.abs.toFixed(6)}
+selected arg(${params.removeUniformMode ? 'ŵ_n' : 'w_n'}) = ${selectedMoment.arg.toFixed(6)} rad
+
+` : ''}tones:
+${toneLines}
+
+moments:
+${momentLines}
+
+waveform = ${audioWaveformEl ? audioWaveformEl.value : 'sine'}
+harmonic_max_k = 64
+moment_mode = ${params.removeUniformMode ? 'H - 1/(2π) [discrete mass: H_i - 1/n_theta]' : 'H'}
+
+continuous curve:
+ν_min = ${params.nuMin}
+ν_max = ${params.nuMax}
+ν_samples = ${params.nuSamples}
+${params.removeUniformMode ? 'ŵ' : 'w'}(ν_min) = ${analysis.continuousCurve[0].re.toFixed(6)} + ${analysis.continuousCurve[0].im.toFixed(6)} i   |${params.removeUniformMode ? 'ŵ' : 'w'}| = ${analysis.continuousCurve[0].abs.toFixed(6)}
+${params.removeUniformMode ? 'ŵ' : 'w'}(ν_max) = ${analysis.continuousCurve[analysis.continuousCurve.length-1].re.toFixed(6)} + ${analysis.continuousCurve[analysis.continuousCurve.length-1].im.toFixed(6)} i   |${params.removeUniformMode ? 'ŵ' : 'w'}| = ${analysis.continuousCurve[analysis.continuousCurve.length-1].abs.toFixed(6)}`;
+}
+
+function updateAudioVolumeReadout(){
+  const v = Math.max(0, Number(audioVolumeEl.value) || 0);
+  audioVolumeValueEl.value = v.toFixed(3);
+}
+function updateAudioButtonLabel(){
+  audioToggleBtn.textContent = `和音を鳴らす: ${audioEnabled ? 'ON' : 'OFF'}`;
+}
+async function ensureAudioEngine(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioMasterGain = audioCtx.createGain();
+    audioMasterGain.gain.value = 0;
+    audioMasterGain.connect(audioCtx.destination);
+  }
+  if(audioCtx.state === 'suspended'){
+    await audioCtx.resume();
+  }
+}
+function getCurrentChordFrequencies(){
+  if(currentAnalysis && Array.isArray(currentAnalysis.tones)){
+    return currentAnalysis.tones
+      .map(t => Number(t.freq))
+      .filter(f => Number.isFinite(f) && f > 0);
+  }
+  const p = currentParams();
+  const freqs = [p.baseHz];
+  for(const setting of currentVoiceSettings){
+    const f = freqFromControl(p.baseHz, setting.l, p.controlMode);
+    if(Number.isFinite(f) && f > 0) freqs.push(f);
+  }
+  return freqs;
+}
+function targetPerVoiceGain(voiceCount){
+  return voiceCount > 0 ? 1 / Math.max(1, voiceCount) : 0;
+}
+function disposeChordVoices(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  chordVoices.forEach(v => {
+    try{
+      v.gain.gain.cancelScheduledValues(now);
+      v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+      v.gain.gain.linearRampToValueAtTime(0, now + 0.03);
+      v.osc.stop(now + 0.04);
+    }catch(_){}
+    setTimeout(() => {
+      try{ v.osc.disconnect(); }catch(_){}
+      try{ v.gain.disconnect(); }catch(_){}
+    }, 80);
+  });
+  chordVoices = [];
+}
+async function rebuildChordVoices(freqs){
+  await ensureAudioEngine();
+  disposeChordVoices();
+  const now = audioCtx.currentTime;
+  const wave = audioWaveformEl.value;
+  const gainPerVoice = targetPerVoiceGain(freqs.length);
+  chordVoices = freqs.map(freq => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = wave;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0, now);
+    osc.connect(gain);
+    gain.connect(audioMasterGain);
+    osc.start(now);
+    gain.gain.linearRampToValueAtTime(audioEnabled ? gainPerVoice : 0, now + 0.03);
+    return {osc, gain};
+  });
+}
+function rampMasterGain(){
+  if(!audioCtx || !audioMasterGain) return;
+  const now = audioCtx.currentTime;
+  const target = audioEnabled ? Math.max(0, Number(audioVolumeEl.value) || 0) : 0;
+  audioMasterGain.gain.cancelScheduledValues(now);
+  audioMasterGain.gain.setValueAtTime(audioMasterGain.gain.value, now);
+  audioMasterGain.gain.linearRampToValueAtTime(target, now + 0.03);
+}
+async function syncChordAudio(forceRebuild = false){
+  updateAudioVolumeReadout();
+  updateAudioButtonLabel();
+  if(!audioEnabled) return;
+  const freqs = getCurrentChordFrequencies();
+  if(freqs.length === 0) return;
+  await ensureAudioEngine();
+  const wave = audioWaveformEl.value;
+  const now = audioCtx.currentTime;
+  if(forceRebuild || chordVoices.length !== freqs.length){
+    await rebuildChordVoices(freqs);
+  } else {
+    const gainPerVoice = targetPerVoiceGain(freqs.length);
+    chordVoices.forEach((v, i) => {
+      const freq = freqs[i];
+      v.osc.type = wave;
+      v.osc.frequency.cancelScheduledValues(now);
+      v.osc.frequency.setValueAtTime(v.osc.frequency.value, now);
+      v.osc.frequency.linearRampToValueAtTime(freq, now + 0.03);
+      v.gain.gain.cancelScheduledValues(now);
+      v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+      v.gain.gain.linearRampToValueAtTime(gainPerVoice, now + 0.03);
+    });
+  }
+  rampMasterGain();
+}
+async function setAudioEnabled(nextState){
+  audioEnabled = !!nextState;
+  updateAudioButtonLabel();
+  if(audioEnabled){
+    await syncChordAudio(true);
+  } else {
+    rampMasterGain();
+  }
+}
+async function stopChordAudio(){
+  audioEnabled = false;
+  updateAudioButtonLabel();
+  if(audioCtx && audioMasterGain){
+    rampMasterGain();
+  }
+  disposeChordVoices();
+}
+
+
+async function analyzeAndRender(){
+  updateMomentControls();
+  syncFRefControls();
+  const params = currentParams();
+  refreshVoiceReadouts();
+  searchReferenceAnalysis = computeAnalysisBundle(params, buildReferenceSearchState());
+  updateSearchUIState();
+  currentAnalysis = getDisplayedAnalysis(params);
+  if(!currentAnalysis){
+    currentAnalysis = searchReferenceAnalysis;
+  }
+  drawDistribution(distCanvas, currentAnalysis, params);
+  drawComplexOne(centroidCanvas, currentAnalysis.w1, `${params.removeUniformMode ? 'ŵ_1' : 'w_1'} in complex ${params.displayMode} hue plane`, currentAnalysis.notePositions);
+  drawMomentsComplex(momentCanvas, currentAnalysis, params);
+  drawMomentSpectrum(momentSpectrumCanvas, currentAnalysis, params);
+  drawContinuousCurve(continuousCurveCanvas, currentAnalysis, params);
+  drawContinuousSpectrum(continuousSpectrumCanvas, currentAnalysis, params);
+  renderInfo(currentAnalysis, params);
+  const searchStateLabel = searchAnalyzed ? `search=index ${getSearchIndex()}` : 'search=未解析';
+  setStatus(`更新完了: M=${currentAnalysis.tones.length}, per-voice discrete enabled, f_ref=${params.fRefControlMode}${params.fRefDiscreteMode ? ' [n-div]' : ''}, display=${params.displayMode}, waveform=${audioWaveformEl.value}, moment=${params.removeUniformMode ? 'DC removed' : 'normal'}, ${searchStateLabel}`);
+  await syncChordAudio();
+}
+
+function initEven(){
+  const p = currentParams();
+  const n = Math.max(0, p.voiceCount - 1);
+  currentVoiceSettings = Array.from({length:n}, (_,i) => ({
+    l: n <= 1 ? 0.5 : (i + 1) / n,
+    discrete: !!p.chordDiscreteMode,
+    divN: Math.max(1, p.chordDivN)
+  })).map((s, i) => normalizeVoiceSetting(s, p, i, n));
+}
+function initMajor(){
+  const p = currentParams();
+  const n = Math.max(0, p.voiceCount - 1);
+  const preset = [1/3, 2/3, 1/2, 5/6, 1/6, 3/4, 1/4];
+  currentVoiceSettings = Array.from({length:n}, (_,i) => ({
+    l: preset[i] != null ? preset[i] : Math.min(1, (i + 1) / Math.max(1,n)),
+    discrete: !!p.chordDiscreteMode,
+    divN: Math.max(1, p.chordDivN)
+  })).map((s, i) => normalizeVoiceSetting(s, p, i, n));
+}
+function initMinor(){
+  const p = currentParams();
+  const n = Math.max(0, p.voiceCount - 1);
+  const preset = [1/3, 2/3, 1/2, 1/6, 5/6, 1/4, 3/4];
+  currentVoiceSettings = Array.from({length:n}, (_,i) => ({
+    l: preset[i] != null ? preset[i] : Math.min(1, (i + 1) / Math.max(1,n)),
+    discrete: !!p.chordDiscreteMode,
+    divN: Math.max(1, p.chordDivN)
+  })).map((s, i) => normalizeVoiceSetting(s, p, i, n));
+}
+
+document.getElementById('applyBtn').addEventListener('click', () => {
+  buildVoiceControls();
+  invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+document.getElementById('presetEvenBtn').addEventListener('click', () => {
+  initEven();
+  buildVoiceControls();
+  invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+document.getElementById('presetMajorBtn').addEventListener('click', () => {
+  initMajor();
+  buildVoiceControls();
+  invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+document.getElementById('presetMinorBtn').addEventListener('click', () => {
+  initMinor();
+  buildVoiceControls();
+  invalidateSearch('基準和音が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+
+audioToggleBtn.addEventListener('click', async () => {
+  await setAudioEnabled(!audioEnabled);
+});
+stopAudioBtn.addEventListener('click', async () => {
+  await stopChordAudio();
+});
+audioWaveformEl.addEventListener('change', () => {
+  invalidateSearch('発音波形が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+audioVolumeEl.addEventListener('input', () => {
+  updateAudioVolumeReadout();
+  rampMasterGain();
+});
+removeUniformModeEl.addEventListener('change', () => {
+  updateRemoveUniformReadout();
+  updateSearchTargetReadout();
+  invalidateSearch('一致探索条件が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+searchAnalyzeBtnEl.addEventListener('click', () => {
+  runSearchAnalysis();
+  analyzeAndRender();
+});
+searchModeEl.addEventListener('change', () => {
+  invalidateSearch('一致探索条件が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+searchDivNEl.addEventListener('change', () => {
+  invalidateSearch('一致探索条件が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+searchIndexSliderEl.addEventListener('input', () => {
+  syncSearchIndexReadouts();
+  analyzeAndRender();
+});
+
+[
+  'baseHz','voiceCount','controlMode','displayMode','nTheta','momentMaxN','nuMin','nuMax','nuSamples',
+  'chordDiscreteMode','chordDivN','a4Hz','fRefControlMode','fRefDiscreteMode','fRefDivN'
+].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if(id === 'voiceCount'){
+      syncVoiceSettingsLength();
+      buildVoiceControls();
+    } else if(id === 'controlMode'){
+      buildVoiceControls();
+    }
+    invalidateSearch('基準和音または解析条件が変わったため未解析状態に戻しました。');
+    analyzeAndRender();
+  });
+});
+
+selectedMomentNInput.addEventListener('input', () => {
+  updateMomentControls();
+  analyzeAndRender();
+});
+
+fRefSlider.addEventListener('input', () => {
+  syncFRefControls();
+  invalidateSearch('f_ref が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+fRefLValue.addEventListener('input', () => {
+  let v = Number(fRefLValue.value);
+  if(!Number.isFinite(v)) return;
+  v = Math.max(0, Math.min(1, v));
+  const p = currentParams();
+  if(p.fRefDiscreteMode){
+    const k = Math.round(v * p.fRefDivN);
+    fRefSlider.value = String(k);
+  } else {
+    fRefSlider.value = String(v);
+  }
+  syncFRefControls();
+  invalidateSearch('f_ref が変わったため未解析状態に戻しました。');
+  analyzeAndRender();
+});
+
+updateAudioVolumeReadout();
+updateAudioButtonLabel();
+updateRemoveUniformReadout();
+updateSearchTargetReadout();
+initEven();
+buildVoiceControls();
+invalidateSearch();
+analyzeAndRender();
+window.addEventListener('beforeunload', () => {
+  stopChordAudio();
+});
+</script>
+</body>
+</html>
