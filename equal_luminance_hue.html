@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>部分範囲 等輝度色相回転エディタ</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #17202b;
+      --muted: #5d6a7d;
+      --line: #d9e1ea;
+      --accent: #2b6ef2;
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(23, 32, 43, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.7rem, 3vw, 2.4rem);
+    }
+    .lead {
+      margin: 0 0 22px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 1.05rem;
+    }
+    .control { margin-bottom: 16px; }
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+    }
+    .control small {
+      display: block;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-top: 6px;
+    }
+    input[type="range"], input[type="file"], button, select { width: 100%; }
+    input[type="range"] { cursor: pointer; }
+    input[type="file"], select {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      font: inherit;
+    }
+    .dropzone {
+      border: 2px dashed #b6c3d3;
+      border-radius: 16px;
+      padding: 18px;
+      text-align: center;
+      color: var(--muted);
+      background: #f9fbff;
+      transition: 0.15s ease;
+      margin-bottom: 16px;
+    }
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: #eef4ff;
+      color: var(--accent);
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(23, 32, 43, 0.08);
+      border-color: #c3cfdd;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    .primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .canvas-panel {
+      position: relative;
+      min-height: 640px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    .viewer {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: auto;
+      background:
+        linear-gradient(45deg, #eef2f7 25%, transparent 25%),
+        linear-gradient(-45deg, #eef2f7 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #eef2f7 75%),
+        linear-gradient(-45deg, transparent 75%, #eef2f7 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+      min-height: 560px;
+    }
+    .stage {
+      position: relative;
+      display: inline-block;
+      margin: 18px;
+      line-height: 0;
+    }
+    canvas {
+      display: block;
+      max-width: none;
+    }
+    #overlayCanvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+    .status, .mono-box {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #f8fafc;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.93rem;
+    }
+    .mono-box {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 12px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef4ff;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.82rem;
+    }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .canvas-panel { min-height: 0; }
+      .viewer { min-height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>部分範囲 等輝度色相回転エディタ</h1>
+    <p class="lead">
+      画像をドラッグ＆ドロップして、選択した部分にだけ <strong>OKLCH系の L 固定・h 回転</strong> を適用します。<br>
+      矩形選択とブラシ選択の両方に対応した、ローカル動作のHTML版です。
+    </p>
+
+    <div class="layout">
+      <section class="panel">
+        <h2>読み込みと操作</h2>
+
+        <div id="dropzone" class="dropzone">
+          ここに画像をドラッグ＆ドロップ<br />
+          または下のファイル選択を使ってください
+        </div>
+
+        <div class="control">
+          <label for="fileInput"><span>画像ファイル</span></label>
+          <input id="fileInput" type="file" accept="image/*" />
+        </div>
+
+        <div class="control">
+          <label for="toolMode"><span>選択ツール</span></label>
+          <select id="toolMode">
+            <option value="rect" selected>矩形選択</option>
+            <option value="lasso">囲み選択</option>
+            <option value="brush">ブラシ選択</option>
+          </select>
+          <small>矩形で一括指定、囲み選択で自由な輪郭指定、ブラシで塗った領域指定ができます。</small>
+        </div>
+
+        <div class="control">
+          <label for="brushSizeRange">
+            <span>ブラシサイズ</span>
+            <strong><span id="brushSizeValue">40</span>px</strong>
+          </label>
+          <input id="brushSizeRange" type="range" min="4" max="200" step="1" value="40" />
+        </div>
+
+        <div class="control">
+          <label for="rotationRange">
+            <span>色相回転角</span>
+            <strong><span id="rotationValue">30</span>°</strong>
+          </label>
+          <input id="rotationRange" type="range" min="-180" max="180" step="1" value="30" />
+          <small>選択範囲の画素ごとに、L を維持したまま h だけ回転します。</small>
+        </div>
+
+        <div class="btn-grid">
+          <button id="previewButton">プレビュー更新</button>
+          <button id="applyButton" class="primary">選択範囲へ適用</button>
+          <button id="resetSelectionButton">選択解除</button>
+          <button id="resetImageButton">画像を元に戻す</button>
+          <button id="downloadButton">PNG保存</button>
+          <button id="sampleButton">サンプル画像生成</button>
+        </div>
+
+        <div class="control" style="margin-top: 16px;">
+          <label>
+            <span>選択情報</span>
+            <span class="pill" id="selectionState">未選択</span>
+          </label>
+          <div class="kv">
+            <div>ツール</div><div id="toolLabel">矩形</div>
+            <div>X</div><div id="selX">-</div>
+            <div>Y</div><div id="selY">-</div>
+            <div>幅</div><div id="selW">-</div>
+            <div>高さ</div><div id="selH">-</div>
+            <div>選択画素数</div><div id="selectedPixels">-</div>
+          </div>
+        </div>
+
+        <div class="status" id="statusBox">
+          画像を読み込むと、右のキャンバスで選択できます。<br>
+          「プレビュー更新」は一時表示、「選択範囲へ適用」は実データへ確定です。
+        </div>
+
+        <div class="mono-box" id="infoBox">mode: OKLCH-like L fixed
+selection: none
+rotation: 30°</div>
+      </section>
+
+      <section class="panel canvas-panel">
+        <div class="toolbar">
+          <div>操作: <strong id="toolModeDisplay">ドラッグで矩形選択</strong></div>
+          <div id="imageMeta">画像未読み込み</div>
+        </div>
+
+        <div class="viewer">
+          <div class="stage" id="stage">
+            <canvas id="imageCanvas"></canvas>
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const imageCanvas = document.getElementById('imageCanvas');
+    const overlayCanvas = document.getElementById('overlayCanvas');
+    const imageCtx = imageCanvas.getContext('2d', { willReadFrequently: true });
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const stage = document.getElementById('stage');
+
+    const toolMode = document.getElementById('toolMode');
+    const brushSizeRange = document.getElementById('brushSizeRange');
+    const brushSizeValue = document.getElementById('brushSizeValue');
+    const rotationRange = document.getElementById('rotationRange');
+    const rotationValue = document.getElementById('rotationValue');
+    const previewButton = document.getElementById('previewButton');
+    const applyButton = document.getElementById('applyButton');
+    const resetSelectionButton = document.getElementById('resetSelectionButton');
+    const resetImageButton = document.getElementById('resetImageButton');
+    const downloadButton = document.getElementById('downloadButton');
+    const sampleButton = document.getElementById('sampleButton');
+
+    const selectionState = document.getElementById('selectionState');
+    const toolLabel = document.getElementById('toolLabel');
+    const selX = document.getElementById('selX');
+    const selY = document.getElementById('selY');
+    const selW = document.getElementById('selW');
+    const selH = document.getElementById('selH');
+    const selectedPixels = document.getElementById('selectedPixels');
+    const statusBox = document.getElementById('statusBox');
+    const infoBox = document.getElementById('infoBox');
+    const imageMeta = document.getElementById('imageMeta');
+    const toolModeDisplay = document.getElementById('toolModeDisplay');
+
+    const state = {
+      imageLoaded: false,
+      originalImageData: null,
+      baseImageData: null,
+      currentImageData: null,
+      selectionRect: null,
+      selectionMask: null,
+      selectedPixelCount: 0,
+      dragging: false,
+      dragStart: null,
+      lastBrushPoint: null,
+      lassoPoints: null,
+      toolMode: 'rect',
+      brushSize: 40,
+      rotation: 30,
+      previewActive: false,
+      imageName: 'edited-image.png'
+    };
+
+    function setStatus(text) {
+      statusBox.innerHTML = text;
+    }
+
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+
+    function hasSelection() {
+      return !!state.selectionRect && state.selectedPixelCount > 0;
+    }
+
+    function resizeCanvases(width, height) {
+      imageCanvas.width = width;
+      imageCanvas.height = height;
+      overlayCanvas.width = width;
+      overlayCanvas.height = height;
+      stage.style.width = `${width}px`;
+      stage.style.height = `${height}px`;
+      imageMeta.textContent = `${width} × ${height}px`;
+    }
+
+    function copyImageData(imageData) {
+      return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+    }
+
+    function drawCurrentImage() {
+      if (!state.currentImageData) return;
+      imageCtx.putImageData(state.currentImageData, 0, 0);
+    }
+
+    function clearSelection() {
+      state.selectionRect = null;
+      state.selectionMask = null;
+      state.selectedPixelCount = 0;
+      if (state.previewActive && state.baseImageData) {
+        state.currentImageData = copyImageData(state.baseImageData);
+        drawCurrentImage();
+        state.previewActive = false;
+      }
+      redrawOverlay();
+      updateInfo();
+    }
+
+    function updateInfo() {
+      brushSizeValue.textContent = String(state.brushSize);
+      rotationValue.textContent = String(state.rotation);
+      toolLabel.textContent = state.toolMode === 'rect' ? '矩形' : state.toolMode === 'lasso' ? '囲み' : 'ブラシ';
+      toolModeDisplay.textContent = state.toolMode === 'rect'
+        ? 'ドラッグで矩形選択'
+        : state.toolMode === 'lasso'
+          ? 'ドラッグで囲み選択'
+          : 'ドラッグでブラシ選択';
+
+      if (!hasSelection()) {
+        selectionState.textContent = '未選択';
+        selX.textContent = '-';
+        selY.textContent = '-';
+        selW.textContent = '-';
+        selH.textContent = '-';
+        selectedPixels.textContent = '-';
+      } else {
+        selectionState.textContent = '選択中';
+        selX.textContent = state.selectionRect.x;
+        selY.textContent = state.selectionRect.y;
+        selW.textContent = state.selectionRect.w;
+        selH.textContent = state.selectionRect.h;
+        selectedPixels.textContent = state.selectedPixelCount.toLocaleString();
+      }
+
+      infoBox.textContent = [
+        'mode: OKLCH-like L fixed',
+        `tool: ${state.toolMode}`,
+        `brush size: ${state.brushSize}px`,
+        `rotation: ${state.rotation}°`,
+        `preview: ${state.previewActive ? 'on' : 'off'}`,
+        hasSelection()
+          ? `selection bounds: x=${state.selectionRect.x}, y=${state.selectionRect.y}, w=${state.selectionRect.w}, h=${state.selectionRect.h}`
+          : 'selection bounds: none',
+        `selected pixels: ${state.selectedPixelCount}`
+      ].join('\n');
+
+      previewButton.disabled = !state.imageLoaded || !hasSelection();
+      applyButton.disabled = !state.imageLoaded || !hasSelection();
+      resetSelectionButton.disabled = !hasSelection();
+      resetImageButton.disabled = !state.imageLoaded;
+      downloadButton.disabled = !state.imageLoaded;
+    }
+
+    function redrawOverlay() {
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      if (state.toolMode === 'lasso' && state.dragging && state.lassoPoints && state.lassoPoints.length > 1) {
+        overlayCtx.save();
+        overlayCtx.strokeStyle = 'rgba(17, 24, 39, 0.9)';
+        overlayCtx.lineWidth = 2;
+        overlayCtx.setLineDash([6, 4]);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(state.lassoPoints[0].x, state.lassoPoints[0].y);
+        for (let i = 1; i < state.lassoPoints.length; i++) {
+          overlayCtx.lineTo(state.lassoPoints[i].x, state.lassoPoints[i].y);
+        }
+        overlayCtx.stroke();
+        overlayCtx.restore();
+      }
+
+      if (!hasSelection()) return;
+
+      if (state.selectionMask) {
+        const mask = state.selectionMask;
+        const w = overlayCanvas.width;
+        overlayCtx.save();
+        overlayCtx.fillStyle = 'rgba(43, 110, 242, 0.18)';
+        for (let y = state.selectionRect.y; y < state.selectionRect.y + state.selectionRect.h; y++) {
+          for (let x = state.selectionRect.x; x < state.selectionRect.x + state.selectionRect.w; x++) {
+            if (mask[y * w + x]) overlayCtx.fillRect(x, y, 1, 1);
+          }
+        }
+        overlayCtx.restore();
+      } else {
+        overlayCtx.save();
+        overlayCtx.fillStyle = 'rgba(43, 110, 242, 0.16)';
+        overlayCtx.fillRect(state.selectionRect.x, state.selectionRect.y, state.selectionRect.w, state.selectionRect.h);
+        overlayCtx.restore();
+      }
+
+      overlayCtx.save();
+      overlayCtx.strokeStyle = 'rgba(43, 110, 242, 0.95)';
+      overlayCtx.lineWidth = 2;
+      overlayCtx.setLineDash([8, 6]);
+      overlayCtx.strokeRect(state.selectionRect.x, state.selectionRect.y, state.selectionRect.w, state.selectionRect.h);
+      overlayCtx.restore();
+    }
+
+    function makeRectFromPoints(a, b) {
+      const x = Math.min(a.x, b.x);
+      const y = Math.min(a.y, b.y);
+      const w = Math.abs(b.x - a.x);
+      const h = Math.abs(b.y - a.y);
+      if (w < 2 || h < 2) return null;
+      return { x, y, w, h };
+    }
+
+    function ensureMask() {
+      const len = overlayCanvas.width * overlayCanvas.height;
+      if (!state.selectionMask || state.selectionMask.length !== len) {
+        state.selectionMask = new Uint8Array(len);
+      }
+    }
+
+    function updateRectAndCountFromMask() {
+      if (!state.selectionMask) {
+        state.selectionRect = null;
+        state.selectedPixelCount = 0;
+        return;
+      }
+      const width = overlayCanvas.width;
+      const height = overlayCanvas.height;
+      let minX = width, minY = height, maxX = -1, maxY = -1, count = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (state.selectionMask[y * width + x]) {
+            count += 1;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      state.selectedPixelCount = count;
+      state.selectionRect = count > 0 ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } : null;
+    }
+
+    function paintBrushDot(cx, cy) {
+      ensureMask();
+      const radius = Math.max(1, state.brushSize / 2);
+      const width = overlayCanvas.width;
+      const height = overlayCanvas.height;
+      const minX = Math.max(0, Math.floor(cx - radius));
+      const maxX = Math.min(width - 1, Math.ceil(cx + radius));
+      const minY = Math.max(0, Math.floor(cy - radius));
+      const maxY = Math.min(height - 1, Math.ceil(cy + radius));
+      const r2 = radius * radius;
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const dx = x - cx;
+          const dy = y - cy;
+          if (dx * dx + dy * dy <= r2) state.selectionMask[y * width + x] = 1;
+        }
+      }
+    }
+
+    function paintBrushStroke(from, to) {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      const steps = Math.ceil(dist / Math.max(1, state.brushSize * 0.18));
+      for (let i = 0; i <= steps; i++) {
+        const t = steps === 0 ? 0 : i / steps;
+        paintBrushDot(from.x + dx * t, from.y + dy * t);
+      }
+    }
+
+    function rasterizePolygonToMask(points) {
+      if (!points || points.length < 3) {
+        state.selectionMask = null;
+        state.selectionRect = null;
+        state.selectedPixelCount = 0;
+        return;
+      }
+
+      const width = overlayCanvas.width;
+      const height = overlayCanvas.height;
+      state.selectionMask = new Uint8Array(width * height);
+
+      let minX = width, minY = height, maxX = -1, maxY = -1;
+      for (const p of points) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      minX = clamp(Math.floor(minX), 0, width - 1);
+      minY = clamp(Math.floor(minY), 0, height - 1);
+      maxX = clamp(Math.ceil(maxX), 0, width - 1);
+      maxY = clamp(Math.ceil(maxY), 0, height - 1);
+
+      let count = 0;
+      for (let y = minY; y <= maxY; y++) {
+        const py = y + 0.5;
+        const intersections = [];
+        for (let i = 0; i < points.length; i++) {
+          const a = points[i];
+          const b = points[(i + 1) % points.length];
+          const y1 = a.y;
+          const y2 = b.y;
+          if ((y1 <= py && y2 > py) || (y2 <= py && y1 > py)) {
+            const t = (py - y1) / (y2 - y1);
+            intersections.push(a.x + t * (b.x - a.x));
+          }
+        }
+        intersections.sort((a, b) => a - b);
+        for (let i = 0; i + 1 < intersections.length; i += 2) {
+          const start = clamp(Math.ceil(intersections[i]), 0, width - 1);
+          const end = clamp(Math.floor(intersections[i + 1]), 0, width - 1);
+          for (let x = start; x <= end; x++) {
+            state.selectionMask[y * width + x] = 1;
+            count += 1;
+          }
+        }
+      }
+
+      state.selectedPixelCount = count;
+      state.selectionRect = count > 0 ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } : null;
+    }
+
+    function getCanvasPos(event) {
+      const rect = overlayCanvas.getBoundingClientRect();
+      const scaleX = overlayCanvas.width / rect.width;
+      const scaleY = overlayCanvas.height / rect.height;
+      return {
+        x: clamp(Math.round((event.clientX - rect.left) * scaleX), 0, overlayCanvas.width - 1),
+        y: clamp(Math.round((event.clientY - rect.top) * scaleY), 0, overlayCanvas.height - 1)
+      };
+    }
+
+    function srgbToLinear(c) {
+      c /= 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function linearToSrgb(c) {
+      const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+      return Math.round(clamp(v, 0, 1) * 255);
+    }
+
+    function rgbToOklab(r, g, b) {
+      const lr = srgbToLinear(r);
+      const lg = srgbToLinear(g);
+      const lb = srgbToLinear(b);
+      const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+      const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+      const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+      const l_ = Math.cbrt(l);
+      const m_ = Math.cbrt(m);
+      const s_ = Math.cbrt(s);
+      return {
+        L: 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+        a: 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+        b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+      };
+    }
+
+    function oklabToRgb(L, a, b) {
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l = l_ * l_ * l_;
+      const m = m_ * m_ * m_;
+      const s = s_ * s_ * s_;
+      const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+      const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+      const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+      return {
+        r: linearToSrgb(lr),
+        g: linearToSrgb(lg),
+        b: linearToSrgb(lb)
+      };
+    }
+
+    function rotateHueOklabPixel(r, g, b, degrees) {
+      const lab = rgbToOklab(r, g, b);
+      const C = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+      if (C < 1e-7) return { r, g, b };
+      const hue = Math.atan2(lab.b, lab.a);
+      const rotated = hue + (degrees * Math.PI / 180);
+      const a2 = C * Math.cos(rotated);
+      const b2 = C * Math.sin(rotated);
+      return oklabToRgb(lab.L, a2, b2);
+    }
+
+    function applyRotationToSelection(sourceImageData, rect, degrees, mask) {
+      const out = copyImageData(sourceImageData);
+      const width = out.width;
+      const data = out.data;
+      for (let py = rect.y; py < rect.y + rect.h; py++) {
+        for (let px = rect.x; px < rect.x + rect.w; px++) {
+          if (mask && !mask[py * width + px]) continue;
+          const idx = (py * width + px) * 4;
+          if (data[idx + 3] === 0) continue;
+          const rotated = rotateHueOklabPixel(data[idx], data[idx + 1], data[idx + 2], degrees);
+          data[idx] = rotated.r;
+          data[idx + 1] = rotated.g;
+          data[idx + 2] = rotated.b;
+        }
+      }
+      return out;
+    }
+
+    function previewSelection() {
+      if (!state.imageLoaded || !hasSelection()) return;
+      state.currentImageData = applyRotationToSelection(state.baseImageData, state.selectionRect, state.rotation, state.selectionMask);
+      drawCurrentImage();
+      redrawOverlay();
+      state.previewActive = true;
+      setStatus('プレビューを更新しました。問題なければ「選択範囲へ適用」を押してください。');
+      updateInfo();
+    }
+
+    function applySelection() {
+      if (!state.imageLoaded || !hasSelection()) return;
+      state.currentImageData = applyRotationToSelection(state.baseImageData, state.selectionRect, state.rotation, state.selectionMask);
+      drawCurrentImage();
+      state.baseImageData = copyImageData(state.currentImageData);
+      state.previewActive = false;
+      setStatus('選択範囲に色相回転を適用しました。続けて別の範囲を編集できます。');
+      updateInfo();
+    }
+
+    function resetImage() {
+      if (!state.imageLoaded || !state.originalImageData) return;
+      state.baseImageData = copyImageData(state.originalImageData);
+      state.currentImageData = copyImageData(state.originalImageData);
+      drawCurrentImage();
+      state.previewActive = false;
+      clearSelection();
+      setStatus('画像を読み込み直後の状態に戻しました。');
+    }
+
+    function loadImageFromSource(src, name) {
+      const img = new Image();
+      img.onload = () => {
+        resizeCanvases(img.naturalWidth, img.naturalHeight);
+        imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+        imageCtx.drawImage(img, 0, 0);
+        const loaded = imageCtx.getImageData(0, 0, imageCanvas.width, imageCanvas.height);
+        state.originalImageData = copyImageData(loaded);
+        state.baseImageData = copyImageData(loaded);
+        state.currentImageData = copyImageData(loaded);
+        state.imageLoaded = true;
+        state.previewActive = false;
+        state.imageName = (name || 'edited-image').replace(/\.[^.]+$/, '') + '-edited.png';
+        drawCurrentImage();
+        clearSelection();
+        setStatus('画像を読み込みました。右側で選択してから、プレビューまたは適用を行ってください。');
+        updateInfo();
+      };
+      img.onerror = () => {
+        setStatus('画像の読み込みに失敗しました。別の画像ファイルで試してください。');
+      };
+      img.src = src;
+    }
+
+    function handleFile(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        setStatus('画像ファイルを選んでください。');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => loadImageFromSource(e.target.result, file.name);
+      reader.readAsDataURL(file);
+    }
+
+    overlayCanvas.addEventListener('pointerdown', (event) => {
+      if (!state.imageLoaded) return;
+      if (state.previewActive && state.baseImageData) {
+        state.currentImageData = copyImageData(state.baseImageData);
+        drawCurrentImage();
+        state.previewActive = false;
+      }
+      const pos = getCanvasPos(event);
+      state.dragging = true;
+      overlayCanvas.setPointerCapture(event.pointerId);
+
+      if (state.toolMode === 'rect') {
+        state.dragStart = pos;
+        state.selectionRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
+        state.selectionMask = null;
+        state.selectedPixelCount = 0;
+      } else if (state.toolMode === 'lasso') {
+        state.lassoPoints = [pos];
+        state.selectionRect = null;
+        state.selectionMask = null;
+        state.selectedPixelCount = 0;
+      } else {
+        if (!event.shiftKey) state.selectionMask = null;
+        ensureMask();
+        state.lastBrushPoint = pos;
+        paintBrushDot(pos.x, pos.y);
+        updateRectAndCountFromMask();
+      }
+      redrawOverlay();
+      updateInfo();
+    });
+
+    overlayCanvas.addEventListener('pointermove', (event) => {
+      if (!state.dragging || !state.imageLoaded) return;
+      const pos = getCanvasPos(event);
+      if (state.toolMode === 'rect') {
+        const rect = makeRectFromPoints(state.dragStart, pos);
+        state.selectionRect = rect || { x: state.dragStart.x, y: state.dragStart.y, w: 0, h: 0 };
+        state.selectedPixelCount = rect ? rect.w * rect.h : 0;
+      } else if (state.toolMode === 'lasso') {
+        const last = state.lassoPoints[state.lassoPoints.length - 1];
+        if (!last || Math.hypot(pos.x - last.x, pos.y - last.y) >= 2) {
+          state.lassoPoints.push(pos);
+        }
+      } else {
+        paintBrushStroke(state.lastBrushPoint, pos);
+        state.lastBrushPoint = pos;
+        updateRectAndCountFromMask();
+      }
+      redrawOverlay();
+      updateInfo();
+    });
+
+    function finishSelection(event) {
+      if (!state.dragging || !state.imageLoaded) return;
+      state.dragging = false;
+      try { overlayCanvas.releasePointerCapture(event.pointerId); } catch {}
+      const pos = getCanvasPos(event);
+      if (state.toolMode === 'rect') {
+        const rect = makeRectFromPoints(state.dragStart, pos);
+        state.selectionRect = rect;
+        state.selectionMask = null;
+        state.selectedPixelCount = rect ? rect.w * rect.h : 0;
+      } else if (state.toolMode === 'lasso') {
+        const last = state.lassoPoints[state.lassoPoints.length - 1];
+        if (!last || Math.hypot(pos.x - last.x, pos.y - last.y) >= 2) {
+          state.lassoPoints.push(pos);
+        }
+        rasterizePolygonToMask(state.lassoPoints);
+      } else {
+        paintBrushStroke(state.lastBrushPoint, pos);
+        state.lastBrushPoint = null;
+        updateRectAndCountFromMask();
+      }
+      redrawOverlay();
+      updateInfo();
+      if (hasSelection()) {
+        setStatus(state.toolMode === 'rect'
+          ? '範囲を選択しました。「プレビュー更新」で確認できます。'
+          : state.toolMode === 'lasso'
+            ? '囲み選択を作成しました。輪郭の内側が編集対象です。'
+            : 'ブラシ選択を更新しました。Shift を押しながら塗ると既存選択に追加できます。');
+      } else {
+        setStatus('選択範囲が小さすぎたか、空でした。');
+      }
+    }
+
+    overlayCanvas.addEventListener('pointerup', finishSelection);
+    overlayCanvas.addEventListener('pointerleave', (event) => {
+      if (state.dragging) finishSelection(event);
+    });
+
+    fileInput.addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (file) handleFile(file);
+    });
+
+    ['dragenter', 'dragover'].forEach(type => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(type => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+    dropzone.addEventListener('drop', (event) => {
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+
+    toolMode.addEventListener('change', () => {
+      state.toolMode = toolMode.value;
+      state.lassoPoints = null;
+      clearSelection();
+      setStatus(
+        state.toolMode === 'rect'
+          ? '矩形選択モードに切り替えました。'
+          : state.toolMode === 'lasso'
+            ? '囲み選択モードに切り替えました。ドラッグで輪郭をなぞると、その内側を選択できます。'
+            : 'ブラシ選択モードに切り替えました。'
+      );
+      updateInfo();
+    });
+
+    brushSizeRange.addEventListener('input', () => {
+      state.brushSize = Number(brushSizeRange.value);
+      updateInfo();
+    });
+
+    rotationRange.addEventListener('input', () => {
+      state.rotation = Number(rotationRange.value);
+      updateInfo();
+      if (state.previewActive && hasSelection()) previewSelection();
+    });
+
+    previewButton.addEventListener('click', previewSelection);
+    applyButton.addEventListener('click', applySelection);
+    resetSelectionButton.addEventListener('click', () => {
+      clearSelection();
+      setStatus('選択範囲を解除しました。');
+    });
+    resetImageButton.addEventListener('click', resetImage);
+    downloadButton.addEventListener('click', () => {
+      if (!state.imageLoaded) return;
+      const a = document.createElement('a');
+      a.href = imageCanvas.toDataURL('image/png');
+      a.download = state.imageName;
+      a.click();
+    });
+
+    sampleButton.addEventListener('click', () => {
+      const c = document.createElement('canvas');
+      c.width = 900;
+      c.height = 540;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createLinearGradient(0, 0, c.width, c.height);
+      grad.addColorStop(0, '#ff6b6b');
+      grad.addColorStop(0.25, '#ffd166');
+      grad.addColorStop(0.5, '#06d6a0');
+      grad.addColorStop(0.75, '#118ab2');
+      grad.addColorStop(1, '#7b61ff');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.fillRect(80, 80, 320, 180);
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.arc(650, 170, 95, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = '700 56px system-ui, sans-serif';
+      ctx.fillText('Hue Rotate', 90, 190);
+      ctx.font = '400 28px system-ui, sans-serif';
+      ctx.fillText('sample image', 92, 232);
+      for (let i = 0; i < 9; i++) {
+        ctx.fillStyle = `hsl(${i * 40} 80% 55%)`;
+        ctx.fillRect(90 + i * 80, 360, 56, 90);
+      }
+      loadImageFromSource(c.toDataURL('image/png'), 'sample-image.png');
+    });
+
+    toolMode.value = state.toolMode;
+    brushSizeRange.value = state.brushSize;
+    rotationRange.value = state.rotation;
+    updateInfo();
+  </script>
+</body>
+</html>
