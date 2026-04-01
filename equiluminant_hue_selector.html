@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>等輝度・色相回転セレクタ</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #18212f;
+      --muted: #5a677a;
+      --line: #d9e0ea;
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(24, 33, 47, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.8rem, 3vw, 2.5rem);
+    }
+
+    .lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 20px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 1.05rem;
+    }
+
+    .control {
+      margin-bottom: 16px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+    }
+
+    .control small {
+      display: block;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 6px;
+    }
+
+    input[type="range"], input[type="number"], select, button {
+      width: 100%;
+    }
+
+    input[type="range"] {
+      cursor: pointer;
+    }
+
+    input[type="number"], select {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      font: inherit;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(24, 33, 47, 0.08);
+    }
+
+    .preview-top {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .big-swatch {
+      border-radius: 18px;
+      min-height: 180px;
+      border: 1px solid var(--line);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .swatch-meta {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      background: rgba(255,255,255,0.86);
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+
+    .ring-wrap {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      background: #fff;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+    }
+
+    .info {
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 0.95rem;
+    }
+
+    .strip {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 0;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      margin-bottom: 10px;
+    }
+
+    .step {
+      min-height: 92px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .step span {
+      position: absolute;
+      left: 6px;
+      bottom: 6px;
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.8);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .footer-note {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 920px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      .ring-wrap {
+        grid-template-columns: 1fr;
+      }
+      .preview-top {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>等輝度・色相回転セレクタ</h1>
+    <p class="lead">
+      輝度を一定に保ったまま色相を回すための実験用HTMLです。<br>
+      HSLの <span class="mono">L</span> 固定にも切り替えできますが、知覚的には <span class="mono">OKLCH</span> のほうが等輝度に近い挙動になります。
+    </p>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>操作</h2>
+
+        <div class="control">
+          <label for="mode">
+            <span>色空間モード</span>
+          </label>
+          <select id="mode">
+            <option value="oklch" selected>OKLCH（推奨）</option>
+            <option value="hsl">HSL（比較用）</option>
+          </select>
+          <small>OKLCHは知覚上の明るさをそろえやすく、HSLは数値的には簡単ですが見た目の輝度が揃いにくいです。</small>
+        </div>
+
+        <div class="control">
+          <label for="hue">
+            <span>基準色相</span>
+            <strong><span id="hueValue">0</span>°</strong>
+          </label>
+          <input id="hue" type="range" min="0" max="360" value="0" />
+        </div>
+
+        <div class="control">
+          <label for="lightness">
+            <span>輝度 / 明度</span>
+            <strong><span id="lightnessValue">0.72</span></strong>
+          </label>
+          <input id="lightness" type="range" min="0.2" max="0.95" step="0.01" value="0.72" />
+          <small>OKLCHでは <span class="mono">L</span>、HSLでは <span class="mono">L%</span> に相当します。</small>
+        </div>
+
+        <div class="control">
+          <label for="chroma">
+            <span>彩度 / Chroma</span>
+            <strong><span id="chromaValue">0.16</span></strong>
+          </label>
+          <input id="chroma" type="range" min="0" max="0.32" step="0.01" value="0.16" />
+          <small>OKLCHでは Chroma、HSLでは Saturation として扱います。</small>
+        </div>
+
+        <div class="control">
+          <label for="stepSize">
+            <span>回転ステップ角</span>
+            <strong><span id="stepSizeValue">30</span>°</strong>
+          </label>
+          <input id="stepSize" type="range" min="5" max="120" step="5" value="30" />
+        </div>
+
+        <div class="control">
+          <label for="sampleCount">
+            <span>表示サンプル数</span>
+            <strong><span id="sampleCountValue">12</span></strong>
+          </label>
+          <input id="sampleCount" type="range" min="3" max="24" step="1" value="12" />
+        </div>
+
+        <div class="button-row">
+          <button id="rotatePrev">- 色相回転</button>
+          <button id="rotateNext">+ 色相回転</button>
+          <button id="copyCss">CSSコピー</button>
+          <button id="randomize">ランダム</button>
+        </div>
+
+        <div class="footer-note" id="cssOutput">
+          oklch(0.72 0.16 0)
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>結果表示</h2>
+
+        <div class="preview-top">
+          <div class="big-swatch" id="baseSwatch">
+            <div class="swatch-meta">
+              <div><strong>基準色</strong></div>
+              <div class="mono" id="baseLabel">oklch(0.72 0.16 0)</div>
+              <div class="mono" id="baseHex">#000000</div>
+            </div>
+          </div>
+          <div class="big-swatch" id="rotatedSwatch">
+            <div class="swatch-meta">
+              <div><strong>回転後</strong></div>
+              <div class="mono" id="rotatedLabel">oklch(0.72 0.16 30)</div>
+              <div class="mono" id="rotatedHex">#000000</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ring-wrap">
+          <canvas id="wheel" width="320" height="320"></canvas>
+          <div class="info">
+            <p>円環は、現在の輝度を固定したまま色相を一周させた見本です。</p>
+            <p>クリックした位置の色相を基準色相として選択できます。</p>
+            <p>下の帯は一定角度ごとのサンプルです。各色をクリックすると、その色相へジャンプします。</p>
+          </div>
+        </div>
+
+        <div class="strip" id="strip"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const els = {
+      mode: document.getElementById('mode'),
+      hue: document.getElementById('hue'),
+      lightness: document.getElementById('lightness'),
+      chroma: document.getElementById('chroma'),
+      stepSize: document.getElementById('stepSize'),
+      sampleCount: document.getElementById('sampleCount'),
+      hueValue: document.getElementById('hueValue'),
+      lightnessValue: document.getElementById('lightnessValue'),
+      chromaValue: document.getElementById('chromaValue'),
+      stepSizeValue: document.getElementById('stepSizeValue'),
+      sampleCountValue: document.getElementById('sampleCountValue'),
+      baseSwatch: document.getElementById('baseSwatch'),
+      rotatedSwatch: document.getElementById('rotatedSwatch'),
+      baseLabel: document.getElementById('baseLabel'),
+      rotatedLabel: document.getElementById('rotatedLabel'),
+      baseHex: document.getElementById('baseHex'),
+      rotatedHex: document.getElementById('rotatedHex'),
+      cssOutput: document.getElementById('cssOutput'),
+      strip: document.getElementById('strip'),
+      wheel: document.getElementById('wheel'),
+      rotatePrev: document.getElementById('rotatePrev'),
+      rotateNext: document.getElementById('rotateNext'),
+      copyCss: document.getElementById('copyCss'),
+      randomize: document.getElementById('randomize'),
+    };
+
+    const state = {
+      mode: 'oklch',
+      hue: 0,
+      lightness: 0.72,
+      chroma: 0.16,
+      stepSize: 30,
+      sampleCount: 12,
+    };
+
+    function clamp(v, min, max) {
+      return Math.min(max, Math.max(min, v));
+    }
+
+    function normalizeHue(h) {
+      return ((h % 360) + 360) % 360;
+    }
+
+    function cssColor(hue) {
+      if (state.mode === 'oklch') {
+        return `oklch(${state.lightness.toFixed(2)} ${state.chroma.toFixed(2)} ${normalizeHue(hue).toFixed(1)})`;
+      }
+      return `hsl(${normalizeHue(hue).toFixed(1)} ${Math.round(state.chroma * 100)}% ${Math.round(state.lightness * 100)}%)`;
+    }
+
+    function cssBase() {
+      return cssColor(state.hue);
+    }
+
+    function cssRotated() {
+      return cssColor(state.hue + state.stepSize);
+    }
+
+    function probeHex(css) {
+      const probe = document.createElement('div');
+      probe.style.color = css;
+      document.body.appendChild(probe);
+      const rgb = getComputedStyle(probe).color;
+      document.body.removeChild(probe);
+      const nums = rgb.match(/\d+/g);
+      if (!nums || nums.length < 3) return '表示環境で未対応';
+      return '#' + nums.slice(0, 3).map(n => Number(n).toString(16).padStart(2, '0')).join('').toUpperCase();
+    }
+
+    function renderStrip() {
+      els.strip.innerHTML = '';
+      els.strip.style.gridTemplateColumns = `repeat(${state.sampleCount}, minmax(0, 1fr))`;
+      for (let i = 0; i < state.sampleCount; i += 1) {
+        const hue = normalizeHue(state.hue + (360 / state.sampleCount) * i);
+        const cell = document.createElement('div');
+        cell.className = 'step';
+        cell.style.background = cssColor(hue);
+        cell.title = `${hue.toFixed(1)}°`;
+        cell.innerHTML = `<span>${Math.round(hue)}°</span>`;
+        cell.addEventListener('click', () => {
+          state.hue = hue;
+          syncInputs();
+          render();
+        });
+        els.strip.appendChild(cell);
+      }
+    }
+
+    function renderWheel() {
+      const canvas = els.wheel;
+      const ctx = canvas.getContext('2d');
+      const size = canvas.width;
+      const center = size / 2;
+      const radius = size / 2 - 10;
+      const inner = radius * 0.45;
+
+      ctx.clearRect(0, 0, size, size);
+
+      for (let deg = 0; deg < 360; deg += 1) {
+        const start = (deg - 1) * Math.PI / 180;
+        const end = deg * Math.PI / 180;
+        ctx.beginPath();
+        ctx.arc(center, center, radius, start, end);
+        ctx.arc(center, center, inner, end, start, true);
+        ctx.closePath();
+        ctx.fillStyle = cssColor(deg);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(center, center, inner - 10, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#d9e0ea';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const angle = (state.hue - 90) * Math.PI / 180;
+      const markerR = (radius + inner) / 2;
+      const x = center + Math.cos(angle) * markerR;
+      const y = center + Math.sin(angle) * markerR;
+
+      ctx.beginPath();
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#111827';
+      ctx.stroke();
+
+      ctx.fillStyle = '#111827';
+      ctx.font = '700 18px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(state.hue)}°`, center, center + 6);
+    }
+
+    function render() {
+      const base = cssBase();
+      const rotated = cssRotated();
+      els.baseSwatch.style.background = base;
+      els.rotatedSwatch.style.background = rotated;
+      els.baseLabel.textContent = base;
+      els.rotatedLabel.textContent = rotated;
+      els.baseHex.textContent = probeHex(base);
+      els.rotatedHex.textContent = probeHex(rotated);
+      els.cssOutput.textContent = `${base}\n→ rotate hue by ${state.stepSize}°\n${rotated}`;
+      renderStrip();
+      renderWheel();
+    }
+
+    function syncInputs() {
+      els.mode.value = state.mode;
+      els.hue.value = state.hue;
+      els.lightness.value = state.lightness;
+      els.chroma.value = state.chroma;
+      els.stepSize.value = state.stepSize;
+      els.sampleCount.value = state.sampleCount;
+
+      els.hueValue.textContent = Math.round(state.hue);
+      els.lightnessValue.textContent = Number(state.lightness).toFixed(2);
+      els.chromaValue.textContent = Number(state.chroma).toFixed(2);
+      els.stepSizeValue.textContent = Math.round(state.stepSize);
+      els.sampleCountValue.textContent = Math.round(state.sampleCount);
+    }
+
+    function updateFromInputs() {
+      state.mode = els.mode.value;
+      state.hue = Number(els.hue.value);
+      state.lightness = clamp(Number(els.lightness.value), 0, 1);
+      state.chroma = clamp(Number(els.chroma.value), 0, 1);
+      state.stepSize = Number(els.stepSize.value);
+      state.sampleCount = Number(els.sampleCount.value);
+      syncInputs();
+      render();
+    }
+
+    [els.mode, els.hue, els.lightness, els.chroma, els.stepSize, els.sampleCount].forEach(el => {
+      el.addEventListener('input', updateFromInputs);
+      el.addEventListener('change', updateFromInputs);
+    });
+
+    els.rotatePrev.addEventListener('click', () => {
+      state.hue = normalizeHue(state.hue - state.stepSize);
+      syncInputs();
+      render();
+    });
+
+    els.rotateNext.addEventListener('click', () => {
+      state.hue = normalizeHue(state.hue + state.stepSize);
+      syncInputs();
+      render();
+    });
+
+    els.copyCss.addEventListener('click', async () => {
+      const text = `${cssBase()}\n${cssRotated()}`;
+      try {
+        await navigator.clipboard.writeText(text);
+        els.copyCss.textContent = 'コピー済み';
+        setTimeout(() => { els.copyCss.textContent = 'CSSコピー'; }, 1200);
+      } catch {
+        els.copyCss.textContent = '失敗';
+        setTimeout(() => { els.copyCss.textContent = 'CSSコピー'; }, 1200);
+      }
+    });
+
+    els.randomize.addEventListener('click', () => {
+      state.hue = Math.round(Math.random() * 360);
+      state.lightness = Number((0.45 + Math.random() * 0.35).toFixed(2));
+      state.chroma = Number((0.06 + Math.random() * 0.18).toFixed(2));
+      state.stepSize = [15, 20, 30, 45, 60, 90][Math.floor(Math.random() * 6)];
+      syncInputs();
+      render();
+    });
+
+    els.wheel.addEventListener('click', (event) => {
+      const rect = els.wheel.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      const dx = x - cx;
+      const dy = y - cy;
+      const angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+      state.hue = normalizeHue(angle);
+      syncInputs();
+      render();
+    });
+
+    syncInputs();
+    render();
+  </script>
+</body>
+</html>
